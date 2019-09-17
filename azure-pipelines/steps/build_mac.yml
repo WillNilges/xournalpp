@@ -9,8 +9,8 @@ steps:
       brew install --with-toolchain llvm
       brew info llvm
       echo 'export PATH="/usr/local/opt/llvm/bin:$PATH"' >> ~/.bash_profile
-      export CC := clang
-      export CXX := clang++
+      export CC=clang
+      export CXX=clang++
       LDFLAGS += -L/usr/local/opt/llvm/lib -Wl,-rpath,/usr/local/opt/llvm/lib
       CPPFLAGS += -I/usr/local/opt/llvm/include -I/usr/local/opt/llvm/include/c++/v1/
   #xcode-select --install
