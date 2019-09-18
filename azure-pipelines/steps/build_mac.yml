@@ -6,14 +6,20 @@ steps:
   - bash: |
       brew update
       brew upgrade
-      brew install --with-toolchain llvm
+    displayName: 'Update cache and packets'
+  - bash: |
+      xcode-select -s /Applications/Xcode.app
+      brew install --with-clang llvm
       brew info llvm
+      brew install clang clang++
+      brew info clang
+      brew info clang++
       echo 'export PATH="/usr/local/opt/llvm/bin:$PATH"' >> ~/.bash_profile
       export CC=clang
       export CXX=clang++
       export LDFLAGS+=" -L/usr/local/opt/llvm/lib -Wl,-rpath,/usr/local/opt/llvm/lib"
       export CPPFLAGS+=" -I/usr/local/opt/llvm/include -I/usr/local/opt/llvm/include/c++/v1/"
-  #xcode-select --install
+    #xcode-select --install
     displayName: 'Install llvm'
   - bash: |
       brew install cmake ninja pkg-config gtk+3 gtk-mac-integration poppler librsvg adwaita-icon-theme portaudio libsndfile lua libzip cppunit gettext
