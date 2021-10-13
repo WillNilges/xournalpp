@@ -201,7 +201,7 @@ static int applib_registerUi(lua_State* L) {
 /**
  * Execute an UI action (usually internally called from Toolbar / Menu)
  * The argument consists of a Lua table with 3 keys: "action", "group" and "enabled"
- * The key "group" is currently only used for debugging purpose and can savely be omitted.
+ * The key "group" is currently only used for debugging purpose and can safely be omitted.
  * The key "enabled" is true by default.
  *
  * Example 1: app.uiAction({["action"] = "ACTION_PASTE"})
