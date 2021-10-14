@@ -328,6 +328,48 @@ static int applib_layerAction(lua_State* L) {
 }
 
 /**
+ * Given a set of points, draws a stroke on the canvas.
+ **/
+
+static int applib_drawStroke(lua_State* L) {
+    Plugin* plugin = Plugin::getPluginFromLua(L);
+
+    Control* ctrl = plugin->getControl();
+    PageRef const& page = ctrl->getCurrentPage();
+
+    // Stroke something I guess
+    Layer* layer = page->getSelectedLayer();
+    
+    Stroke* myStroke = new Stroke();
+
+    // Point myPoint = Point(500, 500, Point::NO_PRESSURE);
+    // Point myPoint2 = Point(1000, 1000, Point::NO_PRESSURE);
+
+    std::vector<double> coordStream;
+
+    for (int i = 0; i < coordStream.size() - 1; i++) {
+        Point myPoint = Point(coordStream.at(i + 1), coordStream.at(i), Point::NO_PRESSURE);
+        myStroke->addPoint(myPoint);
+        i++; // We go two at a time. X and Y.
+    }
+    //myStroke->addPoint(myPoint);
+    //myStroke->addPoint(myPoint2);
+    myStroke->setWidth(2.5);
+
+    layer->addElement(myStroke);
+    //page->fireElementChanged(myStroke);
+
+    // Manually force the rendering of the stroke, if no motion event occurred between, that would rerender the page.
+    //if (stroke->getPointCount() == 2 || (stroke->getToolType() == STROKE_TOOL_HIGHLIGHTER && stroke->getFill() != -1)) {
+    //    this->redrawable->rerenderElement(stroke);
+    //}
+
+    //myStroke = nullptr;
+
+    return 1;
+}
+
+/**
  * Change page background of current page
  *
  * Example: app.changeCurrentPageBackground("graph")
@@ -1174,6 +1216,7 @@ static const luaL_Reg applib[] = {{"msgbox", applib_msgbox},
                                   {"setBackgroundName", applib_setBackgroundName},
                                   {"scaleTextElements", applib_scaleTextElements},
                                   {"getDisplayDpi", applib_getDisplayDpi},
+                                  {"drawStroke", applib_drawStroke},
                                   // Placeholder
                                   //	{"MSG_BT_OK", nullptr},
 
