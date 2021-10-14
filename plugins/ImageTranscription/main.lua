@@ -16,6 +16,7 @@ end
 -- Callback if the menu item is executed
 -- TODO: Place stroke on page
 function drawStroke()
-  result = app.msgbox("Test123", {[1] = "Yes", [2] = "No"});
-  print("result = " .. result)
+  -- result = app.msgbox("Test123", {[1] = "Yes", [2] = "No"});
+  app.drawStroke();
+  print("result is we're done")
 end
