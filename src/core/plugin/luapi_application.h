@@ -327,6 +327,7 @@ static int applib_layerAction(lua_State* L) {
     return 1;
 }
 
+
 /**
  * Given a set of points, draws a stroke on the canvas.
  **/
@@ -345,16 +346,82 @@ static int applib_drawStroke(lua_State* L) {
     // Point myPoint = Point(500, 500, Point::NO_PRESSURE);
     // Point myPoint2 = Point(1000, 1000, Point::NO_PRESSURE);
 
+    // Get the table from the Lua stack
+
+
+
     std::vector<double> coordStream;
+
+
+        // Push another reference to the table on top of the stack (so we know
+    // where it is, and this function can work for negative, positive and
+    // pseudo indices
+    lua_pushvalue(L, -1);
+    // stack now contains: -1 => table
+    lua_pushnil(L);
+    // stack now contains: -1 => nil; -2 => table
+    while (lua_next(L, -2))
+    {
+        // stack now contains: -1 => value; -2 => key; -3 => table
+        // copy the key so that lua_tostring does not modify the original
+        lua_pushvalue(L, -2);
+        // stack now contains: -1 => key; -2 => value; -3 => key; -4 => table
+        const char *key = lua_tostring(L, -1);
+        const char *value = lua_tostring(L, -2);
+        //printf("%s => %s\n", key, value);
+        coordStream.push_back(std::stod(value));
+        // pop value + copy of key, leaving original key
+        lua_pop(L, 2);
+        // stack now contains: -1 => key; -2 => table
+    }
+    // stack now contains: -1 => table (when lua_next returns 0 it pops the key
+    // but does not push anything.)
+    // Pop table
+    lua_pop(L, 1);
+    // Stack is now the same as it was on entry to this function
+
+
+
+
+    /*printf("Printing table value: ");
+
+    if (!lua_istable(L, -1)){
+        printf("Not a table.\n");
+        return 0;
+    }
+
+    lua_pushnil(L);
+    while(lua_next(L, -2) != 0) {
+        printf("We're checking.\n");
+        if(lua_isstring(L, -1)){
+            printf("It's a string\n");
+          printf("%s = %s\n", lua_tostring(L, -2), lua_tostring(L, -1));
+          //lua_pop(L, 1);
+          //lua_pop(L, 1);
+        }
+        else if(lua_isnumber(L, -1)) {
+          printf("It's a number.\n");
+          printf("%s = %d\n", lua_tostring(L, -2), lua_tonumber(L, -1));
+        }
+        else if(lua_istable(L, -1)){
+            printf("It's a table\n");
+          applib_drawStroke(L);
+        }
+        lua_pop(L, 1);
+    }
+
+    printf("\n");*/
+
 
     for (int i = 0; i < coordStream.size() - 1; i++) {
         Point myPoint = Point(coordStream.at(i + 1), coordStream.at(i), Point::NO_PRESSURE);
         myStroke->addPoint(myPoint);
         i++; // We go two at a time. X and Y.
     }
+
     //myStroke->addPoint(myPoint);
     //myStroke->addPoint(myPoint2);
-    myStroke->setWidth(2.5);
+    myStroke->setWidth(1.5);
 
     layer->addElement(myStroke);
     //page->fireElementChanged(myStroke);
@@ -366,7 +433,7 @@ static int applib_drawStroke(lua_State* L) {
 
     //myStroke = nullptr;
 
-    return 1;
+    return 0;
 }
 
 /**
