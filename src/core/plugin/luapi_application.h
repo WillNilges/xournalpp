@@ -103,6 +103,45 @@ static int applib_saveAs(lua_State* L) {
     return args_returned;
 }
 
+static int applib_getFilePath(lua_State* L) {
+
+    GtkFileChooserNative* native;
+    gint res;
+    int args_returned = 0;  // change to 1 if user chooses file
+
+    //const char* filename = luaL_checkstring(L, -1);
+    char* filename;
+
+            GtkFileFilter* filterSupported = gtk_file_filter_new();        
+        gtk_file_filter_set_name(filterSupported, _("Supported files"));
+        gtk_file_filter_add_pattern(filterSupported, "*.jpg");
+        gtk_file_filter_add_pattern(filterSupported, "*.png");
+        gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(native), filterSupported);
+
+    native = gtk_file_chooser_native_new(_("Open file"), nullptr, GTK_FILE_CHOOSER_ACTION_OPEN, nullptr, nullptr);
+            /*, _("_Cancel"),
+                                         GTK_RESPONSE_CANCEL, _("_Open"), GTK_RESPONSE_OK, nullptr);*/
+
+    
+    // Wait until user responds to dialog
+    res = gtk_native_dialog_run(GTK_NATIVE_DIALOG(native));
+
+    // Return the filename chosen to lua
+    if (res == GTK_RESPONSE_ACCEPT) {
+        char* filename = static_cast<char*>(gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(native)));
+
+        lua_pushlstring(L, filename, strlen(filename));
+        g_free(static_cast<gchar*>(filename));
+        args_returned = 1;
+    }
+
+    // Destroy the dialog and free memory
+    g_object_unref(native);
+
+    return args_returned;
+
+}
+
 /**
  * Example: local result = app.msgbox("Test123", {[1] = "Yes", [2] = "No"})
  * Pops up a message box with two buttons "Yes" and "No" and returns 1 for yes, 2 for no
@@ -338,22 +377,14 @@ static int applib_drawStroke(lua_State* L) {
     Control* ctrl = plugin->getControl();
     PageRef const& page = ctrl->getCurrentPage();
 
-    // Stroke something I guess
     Layer* layer = page->getSelectedLayer();
     
     Stroke* myStroke = new Stroke();
 
-    // Point myPoint = Point(500, 500, Point::NO_PRESSURE);
-    // Point myPoint2 = Point(1000, 1000, Point::NO_PRESSURE);
-
     // Get the table from the Lua stack
-
-
-
     std::vector<double> coordStream;
 
-
-        // Push another reference to the table on top of the stack (so we know
+    // Push another reference to the table on top of the stack (so we know
     // where it is, and this function can work for negative, positive and
     // pseudo indices
     lua_pushvalue(L, -1);
@@ -380,59 +411,35 @@ static int applib_drawStroke(lua_State* L) {
     lua_pop(L, 1);
     // Stack is now the same as it was on entry to this function
 
-
-
-
-    /*printf("Printing table value: ");
-
-    if (!lua_istable(L, -1)){
-        printf("Not a table.\n");
-        return 0;
-    }
-
-    lua_pushnil(L);
-    while(lua_next(L, -2) != 0) {
-        printf("We're checking.\n");
-        if(lua_isstring(L, -1)){
-            printf("It's a string\n");
-          printf("%s = %s\n", lua_tostring(L, -2), lua_tostring(L, -1));
-          //lua_pop(L, 1);
-          //lua_pop(L, 1);
-        }
-        else if(lua_isnumber(L, -1)) {
-          printf("It's a number.\n");
-          printf("%s = %d\n", lua_tostring(L, -2), lua_tonumber(L, -1));
-        }
-        else if(lua_istable(L, -1)){
-            printf("It's a table\n");
-          applib_drawStroke(L);
-        }
-        lua_pop(L, 1);
-    }
-
-    printf("\n");*/
-
-
     for (int i = 0; i < coordStream.size() - 1; i++) {
+        if (!coordStream.at(i+1)) break;
         Point myPoint = Point(coordStream.at(i + 1), coordStream.at(i), Point::NO_PRESSURE);
         myStroke->addPoint(myPoint);
         i++; // We go two at a time. X and Y.
     }
 
-    //myStroke->addPoint(myPoint);
-    //myStroke->addPoint(myPoint2);
     myStroke->setWidth(1.5);
-
     layer->addElement(myStroke);
     //page->fireElementChanged(myStroke);
 
+    // TODO: Unsure if necessary
     // Manually force the rendering of the stroke, if no motion event occurred between, that would rerender the page.
     //if (stroke->getPointCount() == 2 || (stroke->getToolType() == STROKE_TOOL_HIGHLIGHTER && stroke->getFill() != -1)) {
     //    this->redrawable->rerenderElement(stroke);
     //}
 
-    //myStroke = nullptr;
+    myStroke = nullptr; // TODO: Unsure if necessary
 
+    return 0;
+}
+
+static int applib_refreshPage(lua_State* L) {
+  Plugin* plugin = Plugin::getPluginFromLua(L);
+
+    Control* ctrl = plugin->getControl();
+    PageRef const& page = ctrl->getCurrentPage();
+
+    page->firePageChanged();   
     return 0;
 }
 
@@ -1284,6 +1291,8 @@ static const luaL_Reg applib[] = {{"msgbox", applib_msgbox},
                                   {"scaleTextElements", applib_scaleTextElements},
                                   {"getDisplayDpi", applib_getDisplayDpi},
                                   {"drawStroke", applib_drawStroke},
+                                  {"getFilePath", applib_getFilePath},
+                                  {"refreshPage", applib_refreshPage},
                                   // Placeholder
                                   //	{"MSG_BT_OK", nullptr},
 
