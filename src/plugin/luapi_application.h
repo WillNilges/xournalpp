@@ -103,23 +103,18 @@ static int applib_saveAs(lua_State* L) {
 
 static int applib_getFilePath(lua_State* L) {
 
-    GtkFileChooserNative* native;
+    GtkFileChooserNative* native = gtk_file_chooser_native_new(_("Open file"), nullptr, GTK_FILE_CHOOSER_ACTION_OPEN, nullptr, nullptr);
     gint res;
-    int args_returned = 0;  // change to 1 if user chooses file
+    int args_returned = 1;  // change to 1 if user chooses file
 
     //const char* filename = luaL_checkstring(L, -1);
     char* filename;
 
-            GtkFileFilter* filterSupported = gtk_file_filter_new();        
-        gtk_file_filter_set_name(filterSupported, _("Supported files"));
-        gtk_file_filter_add_pattern(filterSupported, "*.jpg");
-        gtk_file_filter_add_pattern(filterSupported, "*.png");
-        gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(native), filterSupported);
-
-    native = gtk_file_chooser_native_new(_("Open file"), nullptr, GTK_FILE_CHOOSER_ACTION_OPEN, nullptr, nullptr);
-            /*, _("_Cancel"),
-                                         GTK_RESPONSE_CANCEL, _("_Open"), GTK_RESPONSE_OK, nullptr);*/
-
+    GtkFileFilter* filterSupported = gtk_file_filter_new();        
+    gtk_file_filter_set_name(filterSupported, _("Supported files"));
+    gtk_file_filter_add_pattern(filterSupported, "*.jpg");
+    gtk_file_filter_add_pattern(filterSupported, "*.png");
+    gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(native), filterSupported);
     
     // Wait until user responds to dialog
     res = gtk_native_dialog_run(GTK_NATIVE_DIALOG(native));
