@@ -22,6 +22,7 @@
 #include "gui/XournalView.h"
 #include "gui/widgets/XournalWidget.h"
 #include "model/Text.h"
+#include "model/SplineSegment.h"
 
 #include "StringUtils.h"
 #include "XojMsgBox.h"
@@ -365,6 +366,85 @@ static int applib_layerAction(lua_State* L) {
 
 
 /**
+ * Given a set of splines, draws a stroke on the canvas.
+ **/
+
+static int applib_drawSplineStroke(lua_State* L) {
+    Plugin* plugin = Plugin::getPluginFromLua(L);
+
+    Control* ctrl = plugin->getControl();
+    PageRef const& page = ctrl->getCurrentPage();
+
+    Layer* layer = page->getSelectedLayer();
+    
+    Stroke* myStroke = new Stroke();
+
+    // Get the table from the Lua stack
+    std::vector<double> coordStream;
+
+    // Push another reference to the table on top of the stack (so we know
+    // where it is, and this function can work for negative, positive and
+    // pseudo indices
+    lua_pushvalue(L, -1);
+    // stack now contains: -1 => table
+    lua_pushnil(L);
+    // stack now contains: -1 => nil; -2 => table
+    while (lua_next(L, -2))
+    {
+        // stack now contains: -1 => value; -2 => key; -3 => table
+        // copy the key so that lua_tostring does not modify the original
+        lua_pushvalue(L, -2);
+        // stack now contains: -1 => key; -2 => value; -3 => key; -4 => table
+        const char *key = lua_tostring(L, -1);
+        const char *value = lua_tostring(L, -2);
+        //printf("%s => %s\n", key, value);
+        coordStream.push_back(std::stod(value));
+        // pop value + copy of key, leaving original key
+        lua_pop(L, 2);
+        // stack now contains: -1 => key; -2 => table
+    }
+    // stack now contains: -1 => table (when lua_next returns 0 it pops the key
+    // but does not push anything.)
+    // Pop table
+    lua_pop(L, 1);
+    // Stack is now the same as it was on entry to this function
+
+    // Now take that gigantic list of splines and create SplineSegments out of them.
+    int i = 0;
+    while (i < coordStream.size()) {
+        printf("i = %d / %d \n", i, coordStream.size());
+        //start, ctrl1, ctrl2, end
+        printf("Start\n");
+        Point start = Point(coordStream.at(i), coordStream.at(i+1), Point::NO_PRESSURE);
+
+        printf("ctrl1\n");
+        Point ctrl1 = Point(coordStream.at(i+2), coordStream.at(i+3), Point::NO_PRESSURE);
+
+        printf("ctrl2\n");
+        Point ctrl2 = Point(coordStream.at(i+4), coordStream.at(i+5), Point::NO_PRESSURE);
+
+        printf("End\n");
+        Point end = Point(coordStream.at(i+6), coordStream.at(i+7), Point::NO_PRESSURE);
+        
+        i += 8;
+
+        SplineSegment segment = SplineSegment(start, ctrl1, ctrl2, end);
+        std::list<Point> raster = segment.toPointSequence();
+
+        for (Point point : raster)
+            myStroke->addPoint(point);
+    }
+
+    myStroke->setWidth(1.5);
+    layer->addElement(myStroke);
+
+    myStroke = nullptr;
+
+    return 0;
+}
+
+
+/**
  * Given a set of points, draws a stroke on the canvas.
  **/
 
@@ -417,13 +497,6 @@ static int applib_drawStroke(lua_State* L) {
 
     myStroke->setWidth(1.5);
     layer->addElement(myStroke);
-    //page->fireElementChanged(myStroke);
-
-    // TODO: Unsure if necessary
-    // Manually force the rendering of the stroke, if no motion event occurred between, that would rerender the page.
-    //if (stroke->getPointCount() == 2 || (stroke->getToolType() == STROKE_TOOL_HIGHLIGHTER && stroke->getFill() != -1)) {
-    //    this->redrawable->rerenderElement(stroke);
-    //}
 
     myStroke = nullptr; // TODO: Unsure if necessary
 
@@ -1014,6 +1087,7 @@ static const luaL_Reg applib[] = {{"msgbox", applib_msgbox},
                                   {"drawStroke", applib_drawStroke},
                                   {"getFilePath", applib_getFilePath},
                                   {"refreshPage", applib_refreshPage},
+                                  {"drawSplineStroke", applib_drawSplineStroke},
                                   // Placeholder
                                   //	{"MSG_BT_OK", nullptr},
 
