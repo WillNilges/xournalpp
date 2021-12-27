@@ -105,37 +105,61 @@ static int applib_saveAs(lua_State* L) {
 }
 
 static int applib_getFilePath(lua_State* L) {
-
     GtkFileChooserNative* native = gtk_file_chooser_native_new(_("Open file"), nullptr, GTK_FILE_CHOOSER_ACTION_OPEN, nullptr, nullptr);
     gint res;
     int args_returned = 1;  // change to 1 if user chooses file
-
-    //const char* filename = luaL_checkstring(L, -1);
     char* filename;
 
-    GtkFileFilter* filterSupported = gtk_file_filter_new();        
-    gtk_file_filter_set_name(filterSupported, _("Supported files"));
-    gtk_file_filter_add_pattern(filterSupported, "*.jpg");
-    gtk_file_filter_add_pattern(filterSupported, "*.png");
-    gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(native), filterSupported);
-    
+    // Get vector of supported formats from Lua stack
+    std::vector<std::string> formats;
+    // Push another reference to the table on top of the stack (so we know
+    // where it is, and this function can work for negative, positive and
+    // pseudo indices
+    lua_pushvalue(L, -1);
+    // stack now contains: -1 => table
+    lua_pushnil(L);
+    // stack now contains: -1 => nil; -2 => table
+    while (lua_next(L, -2))
+    {
+        // stack now contains: -1 => value; -2 => key; -3 => table
+        // copy the key so that lua_tostring does not modify the original
+        lua_pushvalue(L, -2);
+        // stack now contains: -1 => key; -2 => value; -3 => key; -4 => table
+        const char *key = lua_tostring(L, -1);
+        const char *value = lua_tostring(L, -2);
+        //printf("%s => %s\n", key, value);
+        formats.push_back(value);
+        // pop value + copy of key, leaving original key
+        lua_pop(L, 2);
+        // stack now contains: -1 => key; -2 => table
+    }
+    // stack now contains: -1 => table (when lua_next returns 0 it pops the key
+    // but does not push anything.)
+    // Pop table
+    lua_pop(L, 1);
+    // Stack is now the same as it was on entry to this function
+
+    // Autotrace 0.40.0 supports ppm, png, pbm, pnm, bmp, tga, yuv, pgm, gf
+    // JPEG is not supported.
+    if (formats.size() > 0) {
+        GtkFileFilter* filterSupported = gtk_file_filter_new();
+        gtk_file_filter_set_name(filterSupported, _("Supported files"));
+        for (std::string format : formats)
+            gtk_file_filter_add_pattern(filterSupported, format.c_str());
+        gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(native), filterSupported);
+    }
     // Wait until user responds to dialog
     res = gtk_native_dialog_run(GTK_NATIVE_DIALOG(native));
-
     // Return the filename chosen to lua
     if (res == GTK_RESPONSE_ACCEPT) {
-        char* filename = static_cast<char*>(gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(native)));
-
+        filename = static_cast<char*>(gtk_file_chooser_get_filename(GTK_FILE_CHOOSER(native)));
         lua_pushlstring(L, filename, strlen(filename));
         g_free(static_cast<gchar*>(filename));
         args_returned = 1;
     }
-
     // Destroy the dialog and free memory
     g_object_unref(native);
-
     return args_returned;
-
 }
 
 /**
