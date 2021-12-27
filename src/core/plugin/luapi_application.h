@@ -23,12 +23,12 @@
 #include "gui/XournalView.h"
 #include "gui/widgets/XournalWidget.h"
 #include "model/Font.h"
+#include "model/SplineSegment.h"
 #include "model/StrokeStyle.h"
 #include "model/Text.h"
 #include "util/StringUtils.h"
 #include "util/XojMsgBox.h"
 #include "util/safe_casts.h"
-#include "model/SplineSegment.h"
 
 /**
  * Renames file 'from' to file 'to' in the file system.
@@ -104,8 +104,17 @@ static int applib_saveAs(lua_State* L) {
     return args_returned;
 }
 
+/**
+ * Create a 'Open File' native dialog and return as a string
+ * the filepath the user chose to open.
+ *
+ * Examples:
+ *   path = app.getFilePath()
+ *   path = app.getFilePath({'*.bmp', '*.png'})
+ */
 static int applib_getFilePath(lua_State* L) {
-    GtkFileChooserNative* native = gtk_file_chooser_native_new(_("Open file"), nullptr, GTK_FILE_CHOOSER_ACTION_OPEN, nullptr, nullptr);
+    GtkFileChooserNative* native =
+            gtk_file_chooser_native_new(_("Open file"), nullptr, GTK_FILE_CHOOSER_ACTION_OPEN, nullptr, nullptr);
     gint res;
     int args_returned = 1;  // change to 1 if user chooses file
     char* filename;
@@ -119,15 +128,13 @@ static int applib_getFilePath(lua_State* L) {
     // stack now contains: -1 => table
     lua_pushnil(L);
     // stack now contains: -1 => nil; -2 => table
-    while (lua_next(L, -2))
-    {
+    while (lua_next(L, -2)) {
         // stack now contains: -1 => value; -2 => key; -3 => table
         // copy the key so that lua_tostring does not modify the original
         lua_pushvalue(L, -2);
         // stack now contains: -1 => key; -2 => value; -3 => key; -4 => table
-        const char *key = lua_tostring(L, -1);
-        const char *value = lua_tostring(L, -2);
-        //printf("%s => %s\n", key, value);
+        const char* key = lua_tostring(L, -1);
+        const char* value = lua_tostring(L, -2);
         formats.push_back(value);
         // pop value + copy of key, leaving original key
         lua_pop(L, 2);
@@ -136,18 +143,14 @@ static int applib_getFilePath(lua_State* L) {
     // stack now contains: -1 => table (when lua_next returns 0 it pops the key
     // but does not push anything.)
     // Pop table
-    lua_pop(L, 1);
-    // Stack is now the same as it was on entry to this function
-
-    // Autotrace 0.40.0 supports ppm, png, pbm, pnm, bmp, tga, yuv, pgm, gf
-    // JPEG is not supported.
+    lua_pop(L, 1);  // Stack is now the same as it was on entry to this function
     if (formats.size() > 0) {
         GtkFileFilter* filterSupported = gtk_file_filter_new();
         gtk_file_filter_set_name(filterSupported, _("Supported files"));
-        for (std::string format : formats)
-            gtk_file_filter_add_pattern(filterSupported, format.c_str());
+        for (std::string format: formats) gtk_file_filter_add_pattern(filterSupported, format.c_str());
         gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(native), filterSupported);
     }
+
     // Wait until user responds to dialog
     res = gtk_native_dialog_run(GTK_NATIVE_DIALOG(native));
     // Return the filename chosen to lua
@@ -389,16 +392,14 @@ static int applib_layerAction(lua_State* L) {
 
 /**
  * Given a set of splines, draws a stroke on the canvas.
- **/
-
+ *
+ * Example: app.drawSplineStroke(single_stroke)
+ */
 static int applib_drawSplineStroke(lua_State* L) {
     Plugin* plugin = Plugin::getPluginFromLua(L);
-
     Control* ctrl = plugin->getControl();
     PageRef const& page = ctrl->getCurrentPage();
-
     Layer* layer = page->getSelectedLayer();
-    
     Stroke* myStroke = new Stroke();
 
     // Get the table from the Lua stack
@@ -411,15 +412,13 @@ static int applib_drawSplineStroke(lua_State* L) {
     // stack now contains: -1 => table
     lua_pushnil(L);
     // stack now contains: -1 => nil; -2 => table
-    while (lua_next(L, -2))
-    {
+    while (lua_next(L, -2)) {
         // stack now contains: -1 => value; -2 => key; -3 => table
         // copy the key so that lua_tostring does not modify the original
         lua_pushvalue(L, -2);
         // stack now contains: -1 => key; -2 => value; -3 => key; -4 => table
-        const char *key = lua_tostring(L, -1);
-        const char *value = lua_tostring(L, -2);
-        //printf("%s => %s\n", key, value);
+        const char* key = lua_tostring(L, -1);
+        const char* value = lua_tostring(L, -2);
         coordStream.push_back(std::stod(value));
         // pop value + copy of key, leaving original key
         lua_pop(L, 2);
@@ -428,48 +427,45 @@ static int applib_drawSplineStroke(lua_State* L) {
     // stack now contains: -1 => table (when lua_next returns 0 it pops the key
     // but does not push anything.)
     // Pop table
-    lua_pop(L, 1);
-    // Stack is now the same as it was on entry to this function
+    lua_pop(L, 1);  // Stack is now the same as it was on entry to this function
 
     // Now take that gigantic list of splines and create SplineSegments out of them.
     int i = 0;
     while (i < coordStream.size()) {
         printf("i = %d / %d \n", i, coordStream.size());
-        //start, ctrl1, ctrl2, end
+        // start, ctrl1, ctrl2, end
         printf("Start\n");
-        Point start = Point(coordStream.at(i), coordStream.at(i+1), Point::NO_PRESSURE);
+        Point start = Point(coordStream.at(i), coordStream.at(i + 1), Point::NO_PRESSURE);
 
         printf("ctrl1\n");
-        Point ctrl1 = Point(coordStream.at(i+2), coordStream.at(i+3), Point::NO_PRESSURE);
+        Point ctrl1 = Point(coordStream.at(i + 2), coordStream.at(i + 3), Point::NO_PRESSURE);
 
         printf("ctrl2\n");
-        Point ctrl2 = Point(coordStream.at(i+4), coordStream.at(i+5), Point::NO_PRESSURE);
+        Point ctrl2 = Point(coordStream.at(i + 4), coordStream.at(i + 5), Point::NO_PRESSURE);
 
         printf("End\n");
-        Point end = Point(coordStream.at(i+6), coordStream.at(i+7), Point::NO_PRESSURE);
-        
+        Point end = Point(coordStream.at(i + 6), coordStream.at(i + 7), Point::NO_PRESSURE);
+
         i += 8;
 
         SplineSegment segment = SplineSegment(start, ctrl1, ctrl2, end);
         std::list<Point> raster = segment.toPointSequence();
 
-        for (Point point : raster)
-            myStroke->addPoint(point);
+        for (Point point: raster) myStroke->addPoint(point);
     }
-
     myStroke->setWidth(1.5);
     layer->addElement(myStroke);
-
     myStroke = nullptr;
-
     return 0;
 }
 
 
 /**
  * Given a set of points, draws a stroke on the canvas.
- **/
-
+ * Expects a table of coordinate pairs. Each coordinate pair is also a table.
+ *
+ * Example: app.drawStroke(points_list)
+ */
 static int applib_drawStroke(lua_State* L) {
     Plugin* plugin = Plugin::getPluginFromLua(L);
 
@@ -477,7 +473,7 @@ static int applib_drawStroke(lua_State* L) {
     PageRef const& page = ctrl->getCurrentPage();
 
     Layer* layer = page->getSelectedLayer();
-    
+
     Stroke* myStroke = new Stroke();
 
     // Get the table from the Lua stack
@@ -490,15 +486,13 @@ static int applib_drawStroke(lua_State* L) {
     // stack now contains: -1 => table
     lua_pushnil(L);
     // stack now contains: -1 => nil; -2 => table
-    while (lua_next(L, -2))
-    {
+    while (lua_next(L, -2)) {
         // stack now contains: -1 => value; -2 => key; -3 => table
         // copy the key so that lua_tostring does not modify the original
         lua_pushvalue(L, -2);
         // stack now contains: -1 => key; -2 => value; -3 => key; -4 => table
-        const char *key = lua_tostring(L, -1);
-        const char *value = lua_tostring(L, -2);
-        //printf("%s => %s\n", key, value);
+        const char* key = lua_tostring(L, -1);
+        const char* value = lua_tostring(L, -2);
         coordStream.push_back(std::stod(value));
         // pop value + copy of key, leaving original key
         lua_pop(L, 2);
@@ -507,31 +501,31 @@ static int applib_drawStroke(lua_State* L) {
     // stack now contains: -1 => table (when lua_next returns 0 it pops the key
     // but does not push anything.)
     // Pop table
-    lua_pop(L, 1);
-    // Stack is now the same as it was on entry to this function
-
+    lua_pop(L, 1);  // Stack is now the same as it was on entry to this function
     for (int i = 0; i < coordStream.size() - 1; i++) {
-        if (!coordStream.at(i+1)) break;
+        if (!coordStream.at(i + 1))
+            break;
         Point myPoint = Point(coordStream.at(i + 1), coordStream.at(i), Point::NO_PRESSURE);
         myStroke->addPoint(myPoint);
-        i++; // We go two at a time. X and Y.
+        i++;  // We go two at a time. X and Y.
     }
-
     myStroke->setWidth(1.5);
     layer->addElement(myStroke);
-
-    myStroke = nullptr; // TODO: Unsure if necessary
-
+    myStroke = nullptr;
     return 0;
 }
 
+/**
+ * Notifies program of any updates to the working document caused
+ * by the API.
+ *
+ * Example: app.refreshPage()
+ */
 static int applib_refreshPage(lua_State* L) {
-  Plugin* plugin = Plugin::getPluginFromLua(L);
-
+    Plugin* plugin = Plugin::getPluginFromLua(L);
     Control* ctrl = plugin->getControl();
     PageRef const& page = ctrl->getCurrentPage();
-
-    page->firePageChanged();   
+    page->firePageChanged();
     return 0;
 }
 
