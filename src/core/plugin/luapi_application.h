@@ -124,19 +124,15 @@ static int applib_getFilePath(lua_State* L) {
     // Push another reference to the table on top of the stack (so we know
     // where it is, and this function can work for negative, positive and
     // pseudo indices
-    lua_pushvalue(L, -1);
     // stack now contains: -1 => table
     lua_pushnil(L);
     // stack now contains: -1 => nil; -2 => table
     while (lua_next(L, -2)) {
         // stack now contains: -1 => value; -2 => key; -3 => table
-        // copy the key so that lua_tostring does not modify the original
-        lua_pushvalue(L, -2);
-        // stack now contains: -1 => key; -2 => value; -3 => key; -4 => table
-        const char* value = lua_tostring(L, -2);
+        const char* value = lua_tostring(L, -1);
         formats.push_back(value);
         // pop value + copy of key, leaving original key
-        lua_pop(L, 2);
+        lua_pop(L, 1);
         // stack now contains: -1 => key; -2 => table
     }
     // stack now contains: -1 => table (when lua_next returns 0 it pops the key
@@ -407,19 +403,15 @@ static int applib_drawSplineStroke(lua_State* L) {
     // Push another reference to the table on top of the stack (so we know
     // where it is, and this function can work for negative, positive and
     // pseudo indices
-    lua_pushvalue(L, -1);
     // stack now contains: -1 => table
     lua_pushnil(L);
     // stack now contains: -1 => nil; -2 => table
     while (lua_next(L, -2)) {
         // stack now contains: -1 => value; -2 => key; -3 => table
-        // copy the key so that lua_tostring does not modify the original
-        lua_pushvalue(L, -2);
-        // stack now contains: -1 => key; -2 => value; -3 => key; -4 => table
-        const char* value = lua_tostring(L, -2);
-        coordStream.push_back(std::stod(value));
+        double value = lua_tonumber(L, -1);
+        coordStream.push_back(value);
         // pop value + copy of key, leaving original key
-        lua_pop(L, 2);
+        lua_pop(L, 1);
         // stack now contains: -1 => key; -2 => table
     }
     // stack now contains: -1 => table (when lua_next returns 0 it pops the key
@@ -450,6 +442,7 @@ static int applib_drawSplineStroke(lua_State* L) {
     }
     // If there aren't at least 4 points, then don't add the stroke.
     printf("applib_drawSplineStroke: myStroke shorter than four points. Will discard.\n");
+    delete myStroke;
     myStroke = nullptr;
     return 1;
 }
@@ -473,22 +466,15 @@ static int applib_drawStroke(lua_State* L) {
     // Get the table from the Lua stack
     std::vector<double> coordStream;
 
-    // Push another reference to the table on top of the stack (so we know
-    // where it is, and this function can work for negative, positive and
-    // pseudo indices
-    lua_pushvalue(L, -1);
     // stack now contains: -1 => table
     lua_pushnil(L);
     // stack now contains: -1 => nil; -2 => table
     while (lua_next(L, -2)) {
         // stack now contains: -1 => value; -2 => key; -3 => table
-        // copy the key so that lua_tostring does not modify the original
-        lua_pushvalue(L, -2);
-        // stack now contains: -1 => key; -2 => value; -3 => key; -4 => table
-        const char* value = lua_tostring(L, -2);
-        coordStream.push_back(std::stod(value));
+        double value = lua_tonumber(L, -1);
+        coordStream.push_back(value);
         // pop value + copy of key, leaving original key
-        lua_pop(L, 2);
+        lua_pop(L,1);
         // stack now contains: -1 => key; -2 => table
     }
     // stack now contains: -1 => table (when lua_next returns 0 it pops the key
@@ -504,6 +490,7 @@ static int applib_drawStroke(lua_State* L) {
     }
     myStroke->setWidth(1.5);
     layer->addElement(myStroke);
+    delete myStroke;
     myStroke = nullptr;
     return 0;
 }
