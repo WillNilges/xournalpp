@@ -133,7 +133,7 @@ static int applib_getFilePath(lua_State* L) {
         // copy the key so that lua_tostring does not modify the original
         lua_pushvalue(L, -2);
         // stack now contains: -1 => key; -2 => value; -3 => key; -4 => table
-        const char* key = lua_tostring(L, -1);
+        const char* key = lua_tostring(L, -1); // TODO: Remove this
         const char* value = lua_tostring(L, -2);
         formats.push_back(value);
         // pop value + copy of key, leaving original key
@@ -432,33 +432,28 @@ static int applib_drawSplineStroke(lua_State* L) {
     // Now take that gigantic list of splines and create SplineSegments out of them.
     int i = 0;
     while (i < coordStream.size()) {
-        printf("i = %d / %d \n", i, coordStream.size());
         // start, ctrl1, ctrl2, end
-        printf("Start\n");
         Point start = Point(coordStream.at(i), coordStream.at(i + 1), Point::NO_PRESSURE);
-
-        printf("ctrl1\n");
         Point ctrl1 = Point(coordStream.at(i + 2), coordStream.at(i + 3), Point::NO_PRESSURE);
-
-        printf("ctrl2\n");
         Point ctrl2 = Point(coordStream.at(i + 4), coordStream.at(i + 5), Point::NO_PRESSURE);
-
-        printf("End\n");
         Point end = Point(coordStream.at(i + 6), coordStream.at(i + 7), Point::NO_PRESSURE);
-
         i += 8;
-
         SplineSegment segment = SplineSegment(start, ctrl1, ctrl2, end);
         std::list<Point> raster = segment.toPointSequence();
-
         for (Point point: raster) myStroke->addPoint(point);
     }
-    myStroke->setWidth(1.5);
-    layer->addElement(myStroke);
+    // Make sure there are enough points in the stroke to not ruin the file
+    // (See Xournalpp LoadHandler.cpp:913)
+    if (myStroke->getPointCount() >= 4) {
+        myStroke->setWidth(1.5);
+        layer->addElement(myStroke);
+        myStroke = nullptr;
+        return 0;
+    }
+    // If there aren't at least 4 points, then don't add the stroke.
     myStroke = nullptr;
-    return 0;
+    return 1;
 }
-
 
 /**
  * Given a set of points, draws a stroke on the canvas.
@@ -491,7 +486,7 @@ static int applib_drawStroke(lua_State* L) {
         // copy the key so that lua_tostring does not modify the original
         lua_pushvalue(L, -2);
         // stack now contains: -1 => key; -2 => value; -3 => key; -4 => table
-        const char* key = lua_tostring(L, -1);
+        const char* key = lua_tostring(L, -1); // TODO: Remove this
         const char* value = lua_tostring(L, -2);
         coordStream.push_back(std::stod(value));
         // pop value + copy of key, leaving original key
