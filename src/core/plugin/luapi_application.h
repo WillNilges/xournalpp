@@ -133,7 +133,6 @@ static int applib_getFilePath(lua_State* L) {
         // copy the key so that lua_tostring does not modify the original
         lua_pushvalue(L, -2);
         // stack now contains: -1 => key; -2 => value; -3 => key; -4 => table
-        const char* key = lua_tostring(L, -1); // TODO: Remove this
         const char* value = lua_tostring(L, -2);
         formats.push_back(value);
         // pop value + copy of key, leaving original key
@@ -417,7 +416,6 @@ static int applib_drawSplineStroke(lua_State* L) {
         // copy the key so that lua_tostring does not modify the original
         lua_pushvalue(L, -2);
         // stack now contains: -1 => key; -2 => value; -3 => key; -4 => table
-        const char* key = lua_tostring(L, -1);
         const char* value = lua_tostring(L, -2);
         coordStream.push_back(std::stod(value));
         // pop value + copy of key, leaving original key
@@ -430,7 +428,7 @@ static int applib_drawSplineStroke(lua_State* L) {
     lua_pop(L, 1);  // Stack is now the same as it was on entry to this function
 
     // Now take that gigantic list of splines and create SplineSegments out of them.
-    int i = 0;
+    long unsigned int i = 0;
     while (i < coordStream.size()) {
         // start, ctrl1, ctrl2, end
         Point start = Point(coordStream.at(i), coordStream.at(i + 1), Point::NO_PRESSURE);
@@ -451,6 +449,7 @@ static int applib_drawSplineStroke(lua_State* L) {
         return 0;
     }
     // If there aren't at least 4 points, then don't add the stroke.
+    printf("applib_drawSplineStroke: myStroke shorter than four points. Will discard.\n");
     myStroke = nullptr;
     return 1;
 }
@@ -486,7 +485,6 @@ static int applib_drawStroke(lua_State* L) {
         // copy the key so that lua_tostring does not modify the original
         lua_pushvalue(L, -2);
         // stack now contains: -1 => key; -2 => value; -3 => key; -4 => table
-        const char* key = lua_tostring(L, -1); // TODO: Remove this
         const char* value = lua_tostring(L, -2);
         coordStream.push_back(std::stod(value));
         // pop value + copy of key, leaving original key
@@ -497,7 +495,7 @@ static int applib_drawStroke(lua_State* L) {
     // but does not push anything.)
     // Pop table
     lua_pop(L, 1);  // Stack is now the same as it was on entry to this function
-    for (int i = 0; i < coordStream.size() - 1; i++) {
+    for (long unsigned int i = 0; i < coordStream.size() - 1; i++) {
         if (!coordStream.at(i + 1))
             break;
         Point myPoint = Point(coordStream.at(i + 1), coordStream.at(i), Point::NO_PRESSURE);
