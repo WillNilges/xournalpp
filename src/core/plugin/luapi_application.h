@@ -384,7 +384,6 @@ static int applib_layerAction(lua_State* L) {
     return 1;
 }
 
-
 /**
  * Given a set of splines, draws a stroke on the canvas.
  *
@@ -397,15 +396,17 @@ static int applib_drawSplineStroke(lua_State* L) {
     Layer* layer = page->getSelectedLayer();
     Stroke* myStroke = new Stroke();
 
-    // Get the table from the Lua stack
-    std::vector<double> coordStream;
-
+    // Get the spline table from the Lua stack
+    lua_getfield(L, 1, "splines");
     // Push another reference to the table on top of the stack (so we know
     // where it is, and this function can work for negative, positive and
     // pseudo indices
     // stack now contains: -1 => table
     lua_pushnil(L);
     // stack now contains: -1 => nil; -2 => table
+    if (!lua_istable(L, -2))
+        luaL_error(L, "Missing spline table!");
+    std::vector<double> coordStream;
     while (lua_next(L, -2)) {
         // stack now contains: -1 => value; -2 => key; -3 => table
         double value = lua_tonumber(L, -1);
@@ -418,6 +419,19 @@ static int applib_drawSplineStroke(lua_State* L) {
     // but does not push anything.)
     // Pop table
     lua_pop(L, 1);  // Stack is now the same as it was on entry to this function
+
+    // Get the stroke attributes
+    lua_getfield(L, 1, "width");
+    lua_getfield(L, 1, "color");
+    lua_getfield(L, 1, "fill");
+    lua_getfield(L, 1, "tool");
+    lua_getfield(L, 1, "lineStyle");
+    double width = lua_tonumber(L, -5);
+    long long int color = lua_tointeger(L, -4);
+    int fill = lua_tointeger(L, -3);
+    const char* tool = lua_tostring(L, -2);
+    const char* style = lua_tostring(L, -1);
+    lua_pop(L, 5);
 
     // Now take that gigantic list of splines and create SplineSegments out of them.
     long unsigned int i = 0;
@@ -433,15 +447,30 @@ static int applib_drawSplineStroke(lua_State* L) {
         for (Point point: raster) myStroke->addPoint(point);
     }
     // Make sure there are enough points in the stroke to not ruin the file
-    // (See Xournalpp LoadHandler.cpp:913)
     if (myStroke->getPointCount() >= 4) {
-        myStroke->setWidth(1.5);
+        myStroke->setWidth(width);
+        myStroke->setColor(Color(color));
+        myStroke->setFill(fill);
+        if (strcmp("eraser", tool) == 0) {
+            myStroke->setToolType(STROKE_TOOL_ERASER);
+        } else if (strcmp("pen", tool) == 0) {
+            myStroke->setToolType(STROKE_TOOL_PEN);
+        } else if (strcmp("highlighter", tool) == 0) {
+            myStroke->setToolType(STROKE_TOOL_HIGHLIGHTER);
+        } else {
+            g_warning("%s", FC(_F("Unknown stroke type: \"{1}\", assuming pen") % tool));
+        }
+        LineStyle lineStyle = StrokeStyle::parseStyle(style);
+        myStroke->setLineStyle(lineStyle);
+        if (strcmp("", style) != 0 && strcmp("dash", style) != 0 && strcmp("dashdot", style) != 0 &&
+            strcmp("dot", style) != 0)
+            g_warning("%s", FC(_F("Unknown style: \"{1}\", assuming solid") % style));
         layer->addElement(myStroke);
         myStroke = nullptr;
-        return 0;
+        return 1;
     }
     // If there aren't at least 4 points, then don't add the stroke.
-    printf("applib_drawSplineStroke: myStroke shorter than four points. Will discard.\n");
+    g_warning("Stroke shorter than four points. Discarding. (Has %d/4)", myStroke->getPointCount());
     delete myStroke;
     myStroke = nullptr;
     return 1;
@@ -451,48 +480,127 @@ static int applib_drawSplineStroke(lua_State* L) {
  * Given a set of points, draws a stroke on the canvas.
  * Expects a table of coordinate pairs. Each coordinate pair is also a table.
  *
- * Example: app.drawStroke(points_list)
+ * Example: app.drawStroke({
+ *            ["x"] = {
+ *              [1] = 101.0,
+ *              [2] = 102.0,
+ *              [...] = ...,
+ *            },
+ *            ["y"] = {
+ *              [1] = 100.0,
+ *              [2] = 100.0,
+ *              [...] = ...,
+ *            },
+ *            ["pressure"] = {
+ *              [1] = 0.5,
+ *              [2] = 0.4,
+ *              [...] = ...,
+ *            },
+ *            ["width"] = 1.4,
+ *            ["color"] = 0xff0000,
+ *            ["fill"] = 0,
+ *            ["tool"] = "STROKE_TOOL_PEN",
+ *            ["lineStyle"] = "default"
+ *        })
+ *
  */
 static int applib_drawStroke(lua_State* L) {
     Plugin* plugin = Plugin::getPluginFromLua(L);
-
     Control* ctrl = plugin->getControl();
     PageRef const& page = ctrl->getCurrentPage();
-
     Layer* layer = page->getSelectedLayer();
-
     Stroke* myStroke = new Stroke();
 
-    // Get the table from the Lua stack
-    std::vector<double> coordStream;
+    // discard any extra arguments passed in
+    lua_settop(L, 1);
+    luaL_checktype(L, 1, LUA_TTABLE);
 
-    // stack now contains: -1 => table
-    lua_pushnil(L);
-    // stack now contains: -1 => nil; -2 => table
+    // Fetch table of X values from the Lua stack
+    lua_getfield(L, 1, "x");  // X coords are now at -1
+    lua_pushnil(L);           // X coords are now at -2
+    if (!lua_istable(L, -2))
+        luaL_error(L, "Missing X-Coordinate table!");
+    std::vector<double> xStream;
     while (lua_next(L, -2)) {
-        // stack now contains: -1 => value; -2 => key; -3 => table
         double value = lua_tonumber(L, -1);
-        coordStream.push_back(value);
-        // pop value + copy of key, leaving original key
-        lua_pop(L,1);
-        // stack now contains: -1 => key; -2 => table
+        xStream.push_back(value);
+        lua_pop(L, 1);
     }
-    // stack now contains: -1 => table (when lua_next returns 0 it pops the key
-    // but does not push anything.)
-    // Pop table
-    lua_pop(L, 1);  // Stack is now the same as it was on entry to this function
-    for (long unsigned int i = 0; i < coordStream.size() - 1; i++) {
-        if (!coordStream.at(i + 1))
-            break;
-        Point myPoint = Point(coordStream.at(i + 1), coordStream.at(i), Point::NO_PRESSURE);
+    lua_pop(L, 1);  // Stack is back to normal
+
+    // Real Q, let's check and make sure there's enough points (need at least 4)
+    if (xStream.size() < 4) {
+        g_warning("Stroke shorter than four points. Discarding. (Has %ld/4)", xStream.size());
+        return 1;
+    }
+
+    // Fetch table of Y values form the Lua stack
+    // (same drill as above)
+    lua_getfield(L, 1, "y");
+    lua_pushnil(L);
+    if (!lua_istable(L, -2))
+        luaL_error(L, "Missing Y-Coordinate table!");
+    std::vector<double> yStream;
+    while (lua_next(L, -2)) {
+        double value = lua_tonumber(L, -1);
+        yStream.push_back(value);
+        lua_pop(L, 1);
+    }
+    lua_pop(L, 1);
+
+    // Fetch table of pressure values from the Lua stack
+    // (same drill as above)
+    lua_getfield(L, 1, "pressure");
+    lua_pushnil(L);
+    if (!lua_istable(L, -2))
+        luaL_error(L, "Missing Pressure table!");
+    std::vector<double> pressureStream;
+    while (lua_next(L, -2)) {
+        double value = lua_tonumber(L, -1);
+        pressureStream.push_back(value);
+        lua_pop(L, 1);
+    }
+    lua_pop(L, 1);
+
+    // Get the rest of the attributes
+    lua_getfield(L, 1, "width");
+    lua_getfield(L, 1, "color");
+    lua_getfield(L, 1, "fill");
+    lua_getfield(L, 1, "tool");
+    lua_getfield(L, 1, "lineStyle");
+    double width = lua_tonumber(L, -5);
+    long long int color = lua_tointeger(L, -4);
+    int fill = lua_tointeger(L, -3);
+    const char* tool = lua_tostring(L, -2);
+    const char* style = lua_tostring(L, -1);
+    lua_pop(L, 5);
+
+    // Add points to the stroke
+    for (long unsigned int i = 0; i < xStream.size(); i++) {
+        Point myPoint = Point(yStream.at(i), xStream.at(i), Point::NO_PRESSURE);
         myStroke->addPoint(myPoint);
-        i++;  // We go two at a time. X and Y.
     }
-    myStroke->setWidth(1.5);
+
+    myStroke->setWidth(width);
+    myStroke->setColor(Color(color));
+    myStroke->setFill(fill);
+    if (strcmp("eraser", tool) == 0) {
+        myStroke->setToolType(STROKE_TOOL_ERASER);
+    } else if (strcmp("pen", tool) == 0) {
+        myStroke->setToolType(STROKE_TOOL_PEN);
+    } else if (strcmp("highlighter", tool) == 0) {
+        myStroke->setToolType(STROKE_TOOL_HIGHLIGHTER);
+    } else {
+        g_warning("%s", FC(_F("Unknown stroke type: \"{1}\", assuming pen") % tool));
+    }
+    LineStyle lineStyle = StrokeStyle::parseStyle(style);
+    myStroke->setLineStyle(lineStyle);
+    if (strcmp("", style) != 0 && strcmp("dash", style) != 0 && strcmp("dashdot", style) != 0 &&
+        strcmp("dot", style) != 0)
+        g_warning("%s", FC(_F("Unknown style: \"{1}\", assuming solid") % style));
     layer->addElement(myStroke);
-    delete myStroke;
     myStroke = nullptr;
-    return 0;
+    return 1;
 }
 
 /**
