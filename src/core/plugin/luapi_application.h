@@ -384,11 +384,150 @@ static int applib_layerAction(lua_State* L) {
     return 1;
 }
 
+static int addStrokeHelper(lua_State* L, Stroke* stroke, Layer* layer) {
+    //    Plugin* plugin = Plugin::getPluginFromLua(L);
+    //    Control* ctrl = plugin->getControl();
+    //    PageRef const& page = ctrl->getCurrentPage();
+    //    Layer* layer = page->getSelectedLayer();
+    //    Stroke* stroke = new Stroke();
+
+    // discard any extra arguments passed in
+    lua_settop(L, 1);
+    luaL_checktype(L, 1, LUA_TTABLE);
+
+    // Make sure we have enough points to form a stroke
+    if (stroke->getPointCount() >= 2) {
+        // Get the rest of the attributes. Default to something if none is provided
+        // TODO: (willnilges) Test this. Is this robust? Should we be doing this one field at a time?
+        lua_getfield(L, 1, "width");
+        lua_getfield(L, 1, "color");
+        lua_getfield(L, 1, "fill");
+        lua_getfield(L, 1, "tool");
+        lua_getfield(L, 1, "lineStyle");
+        double width = luaL_optnumber(L, -5, 1.5);
+        long long int color = luaL_optinteger(L, -4, 0);
+        int fill = luaL_optinteger(L, -3, -1);
+        const char* tool = luaL_optstring(L, -2, "pen");
+        const char* style = luaL_optstring(L, -1, "");
+        lua_pop(L, 5);
+
+        stroke->setWidth(width);
+        stroke->setColor(Color(color));
+        stroke->setFill(fill);
+        if (strcmp("eraser", tool) == 0) {
+            stroke->setToolType(STROKE_TOOL_ERASER);
+        } else if (strcmp("pen", tool) == 0) {
+            stroke->setToolType(STROKE_TOOL_PEN);
+        } else if (strcmp("highlighter", tool) == 0) {
+            stroke->setToolType(STROKE_TOOL_HIGHLIGHTER);
+        } else {
+            g_warning("%s", FC(_F("Unknown stroke type: \"{1}\", assuming pen") % tool));
+        }
+        LineStyle lineStyle = StrokeStyle::parseStyle(style);
+        stroke->setLineStyle(lineStyle);
+        if (strcmp("", style) != 0 && strcmp("dash", style) != 0 && strcmp("dashdot", style) != 0 &&
+            strcmp("dot", style) != 0)
+            g_warning("%s", FC(_F("Unknown style: \"{1}\", assuming solid") % style));
+        layer->addElement(stroke);
+        stroke = nullptr;
+        return 1;
+    }
+    // If there aren't at least 2 points, then don't add the stroke.
+    g_warning("Stroke shorter than two points. Discarding. (Has %d/2)", stroke->getPointCount());
+    delete stroke;
+    stroke = nullptr;
+    return 1;
+}
+
 /**
- * Given a set of points, or a set of splines, draws a stroke on the canvas.
- * Expects a table of coordinate pairs. Each coordinate pair is also a table.
+ * Given a table containing a series of splines, draws a stroke on the canvas.
+ * Expects a table of coordinate pairs along with attributes of the stroke.
+ * Attributes are optional.
  *
- * Example: app.drawStroke({
+ * Example: app.addStroke({
+ *            ["splines"] = {
+ *              [1] = 880.0,
+ *              [2] = 874.0,
+ *              [3] = 881.3295,
+ *              [4] = 851.5736,
+ *              [5] = 877.2915,
+ *              [6] = 828.2946,
+ *              [7] = 875.1697,
+ *              [8] = 806.0,
+ *              [...] = ...,
+ *            },
+ *            ["width"] = 1.4,
+ *            ["color"] = 0xff000000,
+ *            ["fill"] = 0,
+ *            ["tool"] = "pen",
+ *            ["lineStyle"] = "solid"
+ *        })
+ */
+static int applib_addSpline(lua_State* L) {
+    Plugin* plugin = Plugin::getPluginFromLua(L);
+    Control* ctrl = plugin->getControl();
+    PageRef const& page = ctrl->getCurrentPage();
+    Layer* layer = page->getSelectedLayer();
+    Stroke* stroke = new Stroke();
+
+    // Discard any extra arguments passed in
+    lua_settop(L, 1);
+    luaL_checktype(L, 1, LUA_TTABLE);
+
+    lua_getfield(L, 1, "splines");
+    if (!lua_istable(L, -2))
+        luaL_error(L, "Missing Spline table!");
+    // Push another reference to the table on top of the stack (so we know
+    // where it is, and this function can work for negative, positive and
+    // pseudo indices
+    // stack now contains: -1 => table
+    lua_pushnil(L);
+    // stack now contains: -1 => nil; -2 => table
+    std::vector<double> coordStream;
+    while (lua_next(L, -2)) {
+        // stack now contains: -1 => value; -2 => key; -3 => table
+        double value = lua_tonumber(L, -1);
+        coordStream.push_back(value);
+        // pop value + copy of key, leaving original key
+        lua_pop(L, 1);
+        // stack now contains: -1 => key; -2 => table
+    }
+    // stack now contains: -1 => table (when lua_next returns 0 it pops the key
+    // but does not push anything.)
+    // Pop table
+    lua_pop(L, 1);  // Stack is now the same as it was on entry to this function
+
+    // Check if the list is divisible by 8.
+    // (Due to the nature of quadratic splines, you'll have startX, startY,
+    // ctrl1X, ctrl1Y, ctrl2X, ctrl2Y, endX, and endY repeating in a pattern.)
+    if (coordStream.size() % 8 != 0)
+        luaL_error(L, "Spline table incomplete!");
+
+    // Now take that gigantic list of splines and create SplineSegments out of them.
+    long unsigned int i = 0;
+    while (i < coordStream.size()) {
+        // start, ctrl1, ctrl2, end
+        Point start = Point(coordStream.at(i), coordStream.at(i + 1), Point::NO_PRESSURE);
+        Point ctrl1 = Point(coordStream.at(i + 2), coordStream.at(i + 3), Point::NO_PRESSURE);
+        Point ctrl2 = Point(coordStream.at(i + 4), coordStream.at(i + 5), Point::NO_PRESSURE);
+        Point end = Point(coordStream.at(i + 6), coordStream.at(i + 7), Point::NO_PRESSURE);
+        i += 8;
+        SplineSegment segment = SplineSegment(start, ctrl1, ctrl2, end);
+        std::list<Point> raster = segment.toPointSequence();
+        for (Point point: raster) stroke->addPoint(point);
+        // TODO: (willnilges) Is there a way we can get Pressure with Splines?
+    }
+    // Finish building the Stroke and apply it to the layer.
+    addStrokeHelper(L, stroke, layer);
+    return 1;
+}
+
+/**
+ * Given a set of points, draws a stroke on the canvas.
+ * Expects three tables of equal length: one for X, one for Y, and one for
+ * stroke pressure, along with attributes of the stroke. Attributes are optional.
+ *
+ * Example: app.addStroke({
  *            ["x"] = {
  *              [1] = 101.0,
  *              [2] = 102.0,
@@ -405,169 +544,86 @@ static int applib_layerAction(lua_State* L) {
  *              [...] = ...,
  *            },
  *            ["width"] = 1.4,
- *            ["color"] = 0xff000000,
+ *            ["color"] = 0xff0000,
  *            ["fill"] = 0,
  *            ["tool"] = "STROKE_TOOL_PEN",
- *            ["lineStyle"] = ""
+ *            ["lineStyle"] = "default"
  *        })
- *
- *        **OR**
- *          app.drawStroke({
- *            ["splines"] = {
- *              [1] = 101.0,
- *              [2] = 102.0,
- *              [...] = ...,
- *            },
- *            ["width"] = 1.4,
- *            ["color"] = 0xff000000,
- *            ["fill"] = 0,
- *            ["tool"] = "STROKE_TOOL_PEN",
- *            ["lineStyle"] = ""
- *        })
- *
  */
-static int applib_drawStroke(lua_State* L) {
+static int applib_addStroke(lua_State* L) {
     Plugin* plugin = Plugin::getPluginFromLua(L);
     Control* ctrl = plugin->getControl();
     PageRef const& page = ctrl->getCurrentPage();
     Layer* layer = page->getSelectedLayer();
-    Stroke* myStroke = new Stroke();
+    Stroke* stroke = new Stroke();
 
-    // discard any extra arguments passed in
+    // Discard any extra arguments passed in
     lua_settop(L, 1);
     luaL_checktype(L, 1, LUA_TTABLE);
-
-    // See if there's a spline table on the Lua stack
-    lua_getfield(L, 1, "splines");
     // Push another reference to the table on top of the stack (so we know
     // where it is, and this function can work for negative, positive and
     // pseudo indices
     // stack now contains: -1 => table
     lua_pushnil(L);
     // stack now contains: -1 => nil; -2 => table
-    if (!lua_isnil(L, -2)) {
-        std::vector<double> coordStream;
-        while (lua_next(L, -2)) {
-            // stack now contains: -1 => value; -2 => key; -3 => table
-            double value = lua_tonumber(L, -1);
-            coordStream.push_back(value);
-            // pop value + copy of key, leaving original key
-            lua_pop(L, 1);
-            // stack now contains: -1 => key; -2 => table
-        }
-        // stack now contains: -1 => table (when lua_next returns 0 it pops the key
-        // but does not push anything.)
-        // Pop table
-        lua_pop(L, 1);  // Stack is now the same as it was on entry to this function
-
-        // Now take that gigantic list of splines and create SplineSegments out of them.
-        long unsigned int i = 0;
-        while (i < coordStream.size()) {
-            // start, ctrl1, ctrl2, end
-            Point start = Point(coordStream.at(i), coordStream.at(i + 1), Point::NO_PRESSURE);
-            Point ctrl1 = Point(coordStream.at(i + 2), coordStream.at(i + 3), Point::NO_PRESSURE);
-            Point ctrl2 = Point(coordStream.at(i + 4), coordStream.at(i + 5), Point::NO_PRESSURE);
-            Point end = Point(coordStream.at(i + 6), coordStream.at(i + 7), Point::NO_PRESSURE);
-            i += 8;
-            SplineSegment segment = SplineSegment(start, ctrl1, ctrl2, end);
-            std::list<Point> raster = segment.toPointSequence();
-            for (Point point: raster) myStroke->addPoint(point);
-        }
-        // TODO: (willnilges) Is there a way we can get Pressure with Splines?
-    } else {
-        g_warning("No spline table found, assuming X/Y tables exist...");
-        // Fetch table of X values from the Lua stack
-        lua_getfield(L, 1, "x");  // X coords are now at -1
-        lua_pushnil(L);           // X coords are now at -2
-        if (!lua_istable(L, -2))
-            luaL_error(L, "Missing X-Coordinate table!");
-        std::vector<double> xStream;
-        while (lua_next(L, -2)) {
-            double value = lua_tonumber(L, -1);
-            xStream.push_back(value);
-            lua_pop(L, 1);
-        }
-        lua_pop(L, 1);  // Stack is back to normal
-
-        // Real Q, let's check and make sure there's enough points (need at least 4)
-        if (xStream.size() < 4) {
-            g_warning("Stroke shorter than four points. Discarding. (Has %ld/4)", xStream.size());
-            return 1;
-        }
-
-        // Fetch table of Y values form the Lua stack
-        // (same drill as above)
-        lua_getfield(L, 1, "y");
-        lua_pushnil(L);
-        if (!lua_istable(L, -2))
-            luaL_error(L, "Missing Y-Coordinate table!");
-        std::vector<double> yStream;
-        while (lua_next(L, -2)) {
-            double value = lua_tonumber(L, -1);
-            yStream.push_back(value);
-            lua_pop(L, 1);
-        }
+    // Fetch table of X values from the Lua stack
+    lua_getfield(L, 1, "x");  // X coords are now at -1
+    lua_pushnil(L);           // X coords are now at -2
+    if (!lua_istable(L, -2))
+        luaL_error(L, "Missing X-Coordinate table!");
+    std::vector<double> xStream;
+    while (lua_next(L, -2)) {
+        double value = lua_tonumber(L, -1);
+        xStream.push_back(value);
         lua_pop(L, 1);
-
-        // Fetch table of pressure values from the Lua stack
-        // (same drill as above)
-        lua_getfield(L, 1, "pressure");
-        lua_pushnil(L);
-        if (!lua_istable(L, -2))
-            luaL_error(L, "Missing Pressure table!");
-        std::vector<double> pressureStream;
-        while (lua_next(L, -2)) {
-            double value = lua_tonumber(L, -1);
-            pressureStream.push_back(value);
-            lua_pop(L, 1);
-        }
-        lua_pop(L, 1);
-
-        // Add points to the stroke
-        for (long unsigned int i = 0; i < xStream.size(); i++) {
-            Point myPoint = Point(yStream.at(i), xStream.at(i), pressureStream.at(i));
-            myStroke->addPoint(myPoint);
-        }
     }
-    if (myStroke->getPointCount() >= 4) {
-        // Get the rest of the attributes
-        lua_getfield(L, 1, "width");
-        lua_getfield(L, 1, "color");
-        lua_getfield(L, 1, "fill");
-        lua_getfield(L, 1, "tool");
-        lua_getfield(L, 1, "lineStyle");
-        double width = lua_tonumber(L, -5);
-        long long int color = lua_tointeger(L, -4);
-        int fill = lua_tointeger(L, -3);
-        const char* tool = lua_tostring(L, -2);
-        const char* style = lua_tostring(L, -1);
-        lua_pop(L, 5);
+    lua_pop(L, 1);  // Stack is back to normal
 
-        myStroke->setWidth(width);
-        myStroke->setColor(Color(color));
-        myStroke->setFill(fill);
-        if (strcmp("eraser", tool) == 0) {
-            myStroke->setToolType(STROKE_TOOL_ERASER);
-        } else if (strcmp("pen", tool) == 0) {
-            myStroke->setToolType(STROKE_TOOL_PEN);
-        } else if (strcmp("highlighter", tool) == 0) {
-            myStroke->setToolType(STROKE_TOOL_HIGHLIGHTER);
-        } else {
-            g_warning("%s", FC(_F("Unknown stroke type: \"{1}\", assuming pen") % tool));
-        }
-        LineStyle lineStyle = StrokeStyle::parseStyle(style);
-        myStroke->setLineStyle(lineStyle);
-        if (strcmp("", style) != 0 && strcmp("dash", style) != 0 && strcmp("dashdot", style) != 0 &&
-            strcmp("dot", style) != 0)
-            g_warning("%s", FC(_F("Unknown style: \"{1}\", assuming solid") % style));
-        layer->addElement(myStroke);
-        myStroke = nullptr;
+    // Fetch table of Y values form the Lua stack
+    // (same drill as above)
+    lua_getfield(L, 1, "y");
+    lua_pushnil(L);
+    if (!lua_istable(L, -2))
+        luaL_error(L, "Missing Y-Coordinate table!");
+    std::vector<double> yStream;
+    while (lua_next(L, -2)) {
+        double value = lua_tonumber(L, -1);
+        yStream.push_back(value);
+        lua_pop(L, 1);
+    }
+    lua_pop(L, 1);
+
+    // Fetch table of pressure values from the Lua stack
+    // (same drill as above)
+    lua_getfield(L, 1, "pressure");
+    lua_pushnil(L);
+    if (!lua_istable(L, -2))
+        luaL_error(L, "Missing Pressure table!");
+    std::vector<double> pressureStream;
+    while (lua_next(L, -2)) {
+        double value = lua_tonumber(L, -1);
+        pressureStream.push_back(value);
+        lua_pop(L, 1);
+    }
+    lua_pop(L, 1);
+    // Make sure all vectors are the same length.
+    if (xStream.size() != yStream.size()) {
+        luaL_error(L, "X and Y vectors are not equal length!");
+    }
+    if (xStream.size() != pressureStream.size())
+        luaL_error(L, "Pressure vector is not equal length!");
+    // Check and make sure there's enough points (need at least 2)
+    if (xStream.size() < 2) {
+        g_warning("Stroke shorter than four points. Discarding. (Has %ld/2)", xStream.size());
         return 1;
     }
-    // If there aren't at least 4 points, then don't add the stroke.
-    g_warning("Stroke shorter than four points. Discarding. (Has %d/4)", myStroke->getPointCount());
-    delete myStroke;
-    myStroke = nullptr;
+    // Add points to the stroke
+    for (long unsigned int i = 0; i < xStream.size(); i++) {
+        Point myPoint = Point(yStream.at(i), xStream.at(i), pressureStream.at(i));
+        stroke->addPoint(myPoint);
+    }
+    // Finish building the Stroke and apply it to the layer.
+    addStrokeHelper(L, stroke, layer);
     return 1;
 }
 
@@ -1432,7 +1488,8 @@ static const luaL_Reg applib[] = {{"msgbox", applib_msgbox},
                                   {"setBackgroundName", applib_setBackgroundName},
                                   {"scaleTextElements", applib_scaleTextElements},
                                   {"getDisplayDpi", applib_getDisplayDpi},
-                                  {"drawStroke", applib_drawStroke},
+                                  {"addStroke", applib_addStroke},
+                                  {"addSpline", applib_addSpline},
                                   {"getFilePath", applib_getFilePath},
                                   {"refreshPage", applib_refreshPage},
                                   // Placeholder
