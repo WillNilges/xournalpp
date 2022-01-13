@@ -121,9 +121,6 @@ static int applib_getFilePath(lua_State* L) {
 
     // Get vector of supported formats from Lua stack
     std::vector<std::string> formats;
-    // Push another reference to the table on top of the stack (so we know
-    // where it is, and this function can work for negative, positive and
-    // pseudo indices
     // stack now contains: -1 => table
     lua_pushnil(L);
     // stack now contains: -1 => nil; -2 => table
@@ -131,13 +128,10 @@ static int applib_getFilePath(lua_State* L) {
         // stack now contains: -1 => value; -2 => key; -3 => table
         const char* value = lua_tostring(L, -1);
         formats.push_back(value);
-        // pop value + copy of key, leaving original key
         lua_pop(L, 1);
         // stack now contains: -1 => key; -2 => table
     }
-    // stack now contains: -1 => table (when lua_next returns 0 it pops the key
-    // but does not push anything.)
-    // Pop table
+    // stack now contains: -1 => table
     lua_pop(L, 1);  // Stack is now the same as it was on entry to this function
     if (formats.size() > 0) {
         GtkFileFilter* filterSupported = gtk_file_filter_new();
@@ -385,28 +379,35 @@ static int applib_layerAction(lua_State* L) {
 }
 
 static void addStrokeHelper(lua_State* L, Stroke* stroke, Layer* layer) {
+    Plugin* plugin = Plugin::getPluginFromLua(L);
+    Control* ctrl = plugin->getControl();
+
     // discard any extra arguments passed in
     lua_settop(L, 1);
     luaL_checktype(L, 1, LUA_TTABLE);
 
+    // Use current settings as default if no tool options are passed
+    ToolHandler* toolHandler = ctrl->getToolHandler();
+    ToolSize currentPenSize = toolHandler->getPenSize();
+    Color currentColor = toolHandler->getColor();
+
     // Make sure we have enough points to form a stroke
     if (stroke->getPointCount() >= 2) {
         // Get the rest of the attributes. Default to something if none is provided
-        // TODO: (willnilges) Test this. Is this robust? Should we be doing this one field at a time?
         lua_getfield(L, 1, "width");
         lua_getfield(L, 1, "color");
         lua_getfield(L, 1, "fill");
         lua_getfield(L, 1, "tool");
         lua_getfield(L, 1, "lineStyle");
-        double width = luaL_optnumber(L, -5, 1.5);
-        long long int color = luaL_optinteger(L, -4, 0);
+        double width = luaL_optnumber(L, -5, currentPenSize);
+        Color color = lua_isinteger(L, -4) ? Color(lua_tointeger(L, -4)) : currentColor;
         int fill = luaL_optinteger(L, -3, -1);
         const char* tool = luaL_optstring(L, -2, "pen");
         const char* style = luaL_optstring(L, -1, "");
         lua_pop(L, 5);
 
         stroke->setWidth(width);
-        stroke->setColor(Color(color));
+        stroke->setColor(color);
         stroke->setFill(fill);
         if (strcmp("eraser", tool) == 0) {
             stroke->setToolType(STROKE_TOOL_ERASER);
@@ -437,6 +438,13 @@ static void addStrokeHelper(lua_State* L, Stroke* stroke, Layer* layer) {
  * Given a table containing a series of splines, draws a stroke on the canvas.
  * Expects a table of coordinate pairs along with attributes of the stroke.
  * Attributes are optional.
+ *
+ * The function expects 8 points per spline. Due to the nature of quadratic
+ * splines, you must pass your points in a repeating pattern:
+ * startX, startY, ctrl1X, ctrl1Y, ctrl2X, ctrl2Y, endX, endY, startX, startY, ...
+ *
+ * The function checks that the spline table is divisible by eight, and will throw
+ * an error if it is not.
  *
  * Example: app.addStroke({
  *            ["splines"] = {
@@ -471,9 +479,6 @@ static int applib_addSpline(lua_State* L) {
     lua_getfield(L, 1, "splines");
     if (!lua_istable(L, -2))
         luaL_error(L, "Missing Spline table!");
-    // Push another reference to the table on top of the stack (so we know
-    // where it is, and this function can work for negative, positive and
-    // pseudo indices
     // stack now contains: -1 => table
     lua_pushnil(L);
     // stack now contains: -1 => nil; -2 => table
@@ -486,14 +491,10 @@ static int applib_addSpline(lua_State* L) {
         lua_pop(L, 1);
         // stack now contains: -1 => key; -2 => table
     }
-    // stack now contains: -1 => table (when lua_next returns 0 it pops the key
-    // but does not push anything.)
-    // Pop table
+    // stack now contains: -1 => table
     lua_pop(L, 1);  // Stack is now the same as it was on entry to this function
 
     // Check if the list is divisible by 8.
-    // (Due to the nature of quadratic splines, you'll have startX, startY,
-    // ctrl1X, ctrl1Y, ctrl2X, ctrl2Y, endX, and endY repeating in a pattern.)
     if (coordStream.size() % 8 != 0)
         luaL_error(L, "Spline table incomplete!");
 
@@ -519,7 +520,11 @@ static int applib_addSpline(lua_State* L) {
 /**
  * Given a set of points, draws a stroke on the canvas.
  * Expects three tables of equal length: one for X, one for Y, and one for
- * stroke pressure, along with attributes of the stroke. Attributes are optional.
+ * stroke pressure, along with attributes of the stroke.
+ * Attributes are optional. Pressure is optional.
+ *
+ * The function checks for consistency among table lengths, and throws an
+ * error if there is a discrepancy
  *
  * Example: app.addStroke({
  *            ["x"] = {
@@ -551,6 +556,10 @@ static int applib_addStroke(lua_State* L) {
     Layer* layer = page->getSelectedLayer();
     Stroke* stroke = new Stroke();
 
+    std::vector<double> xStream;
+    std::vector<double> yStream;
+    std::vector<double> pressureStream;
+
     // Discard any extra arguments passed in
     lua_settop(L, 1);
     luaL_checktype(L, 1, LUA_TTABLE);
@@ -562,7 +571,6 @@ static int applib_addStroke(lua_State* L) {
     lua_pushnil(L);           // X coords are now at -2
     if (!lua_istable(L, -2))
         luaL_error(L, "Missing X-Coordinate table!");
-    std::vector<double> xStream;
     while (lua_next(L, -2)) {
         double value = lua_tonumber(L, -1);
         xStream.push_back(value);
@@ -576,7 +584,6 @@ static int applib_addStroke(lua_State* L) {
     lua_pushnil(L);
     if (!lua_istable(L, -2))
         luaL_error(L, "Missing Y-Coordinate table!");
-    std::vector<double> yStream;
     while (lua_next(L, -2)) {
         double value = lua_tonumber(L, -1);
         yStream.push_back(value);
@@ -588,31 +595,41 @@ static int applib_addStroke(lua_State* L) {
     // (same drill as above)
     lua_getfield(L, 1, "pressure");
     lua_pushnil(L);
-    if (!lua_istable(L, -2))
-        luaL_error(L, "Missing Pressure table!");
-    std::vector<double> pressureStream;
-    while (lua_next(L, -2)) {
-        double value = lua_tonumber(L, -1);
-        pressureStream.push_back(value);
+    if (lua_istable(L, -2)) {
+        while (lua_next(L, -2)) {
+            double value = lua_tonumber(L, -1);
+            pressureStream.push_back(value);
+            lua_pop(L, 1);
+        }
         lua_pop(L, 1);
-    }
-    lua_pop(L, 1);
+    } else
+        g_warning("Missing pressure table. Assuming NO_PRESSURE.");
+
     // Make sure all vectors are the same length.
     if (xStream.size() != yStream.size()) {
         luaL_error(L, "X and Y vectors are not equal length!");
     }
-    if (xStream.size() != pressureStream.size())
+    if (xStream.size() != pressureStream.size() && pressureStream.size() > 0)
         luaL_error(L, "Pressure vector is not equal length!");
+
     // Check and make sure there's enough points (need at least 2)
     if (xStream.size() < 2) {
         g_warning("Stroke shorter than four points. Discarding. (Has %ld/2)", xStream.size());
         return 1;
     }
-    // Add points to the stroke
-    for (long unsigned int i = 0; i < xStream.size(); i++) {
-        Point myPoint = Point(yStream.at(i), xStream.at(i), pressureStream.at(i));
-        stroke->addPoint(myPoint);
+    // Add points to the stroke. Include pressure, if it exists.
+    if (pressureStream.size() > 0) {
+        for (long unsigned int i = 0; i < xStream.size(); i++) {
+            Point myPoint = Point(yStream.at(i), xStream.at(i), pressureStream.at(i));
+            stroke->addPoint(myPoint);
+        }
+    } else {
+        for (long unsigned int i = 0; i < xStream.size(); i++) {
+            Point myPoint = Point(yStream.at(i), xStream.at(i), Point::NO_PRESSURE);
+            stroke->addPoint(myPoint);
+        }
     }
+
     // Finish building the Stroke and apply it to the layer.
     addStrokeHelper(L, stroke, layer);
     return 0;
@@ -628,7 +645,10 @@ static int applib_refreshPage(lua_State* L) {
     Plugin* plugin = Plugin::getPluginFromLua(L);
     Control* ctrl = plugin->getControl();
     PageRef const& page = ctrl->getCurrentPage();
-    page->firePageChanged();
+    if (page)
+        page->firePageChanged();
+    else
+        g_warning("Called applib_refreshPage, but no page is selected.");
     return 0;
 }
 
