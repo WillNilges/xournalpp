@@ -116,7 +116,7 @@ static int applib_getFilePath(lua_State* L) {
     GtkFileChooserNative* native =
             gtk_file_chooser_native_new(_("Open file"), nullptr, GTK_FILE_CHOOSER_ACTION_OPEN, nullptr, nullptr);
     gint res;
-    int args_returned = 1;  // change to 1 if user chooses file
+    int args_returned = 0;  // change to 1 if user chooses file
     char* filename;
 
     // Get vector of supported formats from Lua stack
@@ -385,12 +385,6 @@ static int applib_layerAction(lua_State* L) {
 }
 
 static int addStrokeHelper(lua_State* L, Stroke* stroke, Layer* layer) {
-    //    Plugin* plugin = Plugin::getPluginFromLua(L);
-    //    Control* ctrl = plugin->getControl();
-    //    PageRef const& page = ctrl->getCurrentPage();
-    //    Layer* layer = page->getSelectedLayer();
-    //    Stroke* stroke = new Stroke();
-
     // discard any extra arguments passed in
     lua_settop(L, 1);
     luaL_checktype(L, 1, LUA_TTABLE);
@@ -433,7 +427,7 @@ static int addStrokeHelper(lua_State* L, Stroke* stroke, Layer* layer) {
         return 1;
     }
     // If there aren't at least 2 points, then don't add the stroke.
-    g_warning("Stroke shorter than two points. Discarding. (Has %d/2)", stroke->getPointCount());
+    g_warning("Stroke shorter than two points. Discarding. (Has %d)", stroke->getPointCount());
     delete stroke;
     stroke = nullptr;
     return 1;
@@ -519,7 +513,7 @@ static int applib_addSpline(lua_State* L) {
     }
     // Finish building the Stroke and apply it to the layer.
     addStrokeHelper(L, stroke, layer);
-    return 1;
+    return 0;
 }
 
 /**
@@ -560,9 +554,6 @@ static int applib_addStroke(lua_State* L) {
     // Discard any extra arguments passed in
     lua_settop(L, 1);
     luaL_checktype(L, 1, LUA_TTABLE);
-    // Push another reference to the table on top of the stack (so we know
-    // where it is, and this function can work for negative, positive and
-    // pseudo indices
     // stack now contains: -1 => table
     lua_pushnil(L);
     // stack now contains: -1 => nil; -2 => table
@@ -624,7 +615,7 @@ static int applib_addStroke(lua_State* L) {
     }
     // Finish building the Stroke and apply it to the layer.
     addStrokeHelper(L, stroke, layer);
-    return 1;
+    return 0;
 }
 
 /**
