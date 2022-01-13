@@ -384,7 +384,7 @@ static int applib_layerAction(lua_State* L) {
     return 1;
 }
 
-static int addStrokeHelper(lua_State* L, Stroke* stroke, Layer* layer) {
+static void addStrokeHelper(lua_State* L, Stroke* stroke, Layer* layer) {
     // discard any extra arguments passed in
     lua_settop(L, 1);
     luaL_checktype(L, 1, LUA_TTABLE);
@@ -424,13 +424,13 @@ static int addStrokeHelper(lua_State* L, Stroke* stroke, Layer* layer) {
             g_warning("%s", FC(_F("Unknown style: \"{1}\", assuming solid") % style));
         layer->addElement(stroke);
         stroke = nullptr;
-        return 1;
+        return;
     }
     // If there aren't at least 2 points, then don't add the stroke.
     g_warning("Stroke shorter than two points. Discarding. (Has %d)", stroke->getPointCount());
     delete stroke;
     stroke = nullptr;
-    return 1;
+    return;
 }
 
 /**
