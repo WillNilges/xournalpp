@@ -382,47 +382,107 @@ static void addStrokeHelper(lua_State* L, Stroke* stroke, Layer* layer) {
     Plugin* plugin = Plugin::getPluginFromLua(L);
     Control* ctrl = plugin->getControl();
 
+    std::string size;
+    double thickness;
+    int fillOpacity;
+    bool filled;
+    //Tool& tool;
+    Color color;
+    std::string drawingType;
+    std::string lineStyle;
+    ToolHandler* toolHandler;
+    const char* tool;
+
     // discard any extra arguments passed in
     lua_settop(L, 1);
     luaL_checktype(L, 1, LUA_TTABLE);
 
-    // Use current settings as default if no tool options are passed
-    ToolHandler* toolHandler = ctrl->getToolHandler();
-    ToolSize currentPenSize = toolHandler->getPenSize();
-    Color currentColor = toolHandler->getColor();
-
     // Make sure we have enough points to form a stroke
     if (stroke->getPointCount() >= 2) {
-        // Get the rest of the attributes. Default to something if none is provided
+
+        // Get attributes.
+        lua_getfield(L, 1, "tool");
         lua_getfield(L, 1, "width");
         lua_getfield(L, 1, "color");
         lua_getfield(L, 1, "fill");
-        lua_getfield(L, 1, "tool");
         lua_getfield(L, 1, "lineStyle");
-        double width = luaL_optnumber(L, -5, currentPenSize);
-        Color color = lua_isinteger(L, -4) ? Color(lua_tointeger(L, -4)) : currentColor;
-        int fill = luaL_optinteger(L, -3, -1);
-        const char* tool = luaL_optstring(L, -2, "pen");
-        const char* style = luaL_optstring(L, -1, "");
-        lua_pop(L, 5);
 
-        stroke->setWidth(width);
-        stroke->setColor(color);
-        stroke->setFill(fill);
+        tool = luaL_optstring(L, -5, ""); // First thing, we're gonna need the tool type.
+
+        toolHandler = ctrl->getToolHandler();
+
+        // TODO: (willnilges) Handle DrawingType?
+
+        // Set tool type
         if (strcmp("eraser", tool) == 0) {
             stroke->setToolType(STROKE_TOOL_ERASER);
-        } else if (strcmp("pen", tool) == 0) {
-            stroke->setToolType(STROKE_TOOL_PEN);
+
+            std::string type = eraserTypeToString(toolHandler->getEraserType());
+
+            size = toolSizeToString(toolHandler->getEraserSize());
+            thickness = toolHandler->getToolThickness(ToolType::TOOL_ERASER)[toolSizeFromString(size)];
         } else if (strcmp("highlighter", tool) == 0) {
             stroke->setToolType(STROKE_TOOL_HIGHLIGHTER);
-        } else {
-            g_warning("%s", FC(_F("Unknown stroke type: \"{1}\", assuming pen") % tool));
+
+            size = toolSizeToString(toolHandler->getHighlighterSize());
+            thickness = toolHandler->getToolThickness(TOOL_HIGHLIGHTER)[toolSizeFromString(size)];
+
+            fillOpacity = toolHandler->getHighlighterFill();
+            filled = toolHandler->getHighlighterFillEnabled();
+
+            Tool& tool = toolHandler->getTool(TOOL_HIGHLIGHTER);
+            color = tool.getColor();
+            std::string drawingType = drawingTypeToString(tool.getDrawingType());
+        } else { // Tool type must be pen
+            if (!(strcmp("pen", tool) == 0))
+                g_warning("%s", FC(_F("Unknown stroke type: \"{1}\", defaulting to pen") % tool));
+
+            stroke->setToolType(STROKE_TOOL_PEN);
+
+            size         = toolSizeToString(toolHandler->getPenSize());
+            thickness    = toolHandler->getToolThickness(TOOL_PEN)[toolSizeFromString(size)];
+
+            fillOpacity  = toolHandler->getPenFill();
+            filled       = toolHandler->getPenFillEnabled();
+
+            Tool& tool   = toolHandler->getTool(TOOL_PEN);
+            color        = tool.getColor();
+            drawingType  = drawingTypeToString(tool.getDrawingType());
+            lineStyle    = StrokeStyle::formatStyle(tool.getLineStyle());
         }
-        LineStyle lineStyle = StrokeStyle::parseStyle(style);
-        stroke->setLineStyle(lineStyle);
-        if (strcmp("", style) != 0 && strcmp("dash", style) != 0 && strcmp("dashdot", style) != 0 &&
-            strcmp("dot", style) != 0)
-            g_warning("%s", FC(_F("Unknown style: \"{1}\", assuming solid") % style));
+
+        // Set width
+        if (lua_isnumber(L, -4)) // Check if the width was provided
+            stroke->setWidth(lua_tonumber(L, -4));
+        else
+            stroke->setWidth(thickness);
+
+        if (stroke->getToolType() != STROKE_TOOL_ERASER) {
+            // Set color
+            if (lua_isinteger(L, -3)) // Check if the color was provided
+                stroke->setColor(Color(lua_tointeger(L, -3)));
+            else
+                stroke->setColor(color);
+
+            // Set fill
+            if (lua_isinteger(L, -2)) // Check if fill settings were provided
+                stroke->setFill(lua_tointeger(L, -2));
+            else if (filled)
+                stroke->setFill(fillOpacity);
+            else
+                stroke->setFill(-1); // No fill
+
+            // Set line style
+            if (lua_isstring(L, -1)) // Check if line style settings were provided
+                stroke->setLineStyle(StrokeStyle::parseStyle(lua_tostring(L, -1)));
+            else
+                stroke->setLineStyle(StrokeStyle::parseStyle(lineStyle.data()));
+        }
+
+
+        lua_pop(L, 5); // Finally done with all that Lua data.
+
+        // Add the Stroke
         layer->addElement(stroke);
         stroke = nullptr;
         return;
