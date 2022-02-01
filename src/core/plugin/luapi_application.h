@@ -378,6 +378,10 @@ static int applib_layerAction(lua_State* L) {
     return 1;
 }
 
+/**
+ * Helper function for addStroke API. Parses pen settings from API call, taking
+ * in a Stroke and a chosen Layer, sets the pen settings, and applies the stroke.
+ */
 static void addStrokeHelper(lua_State* L, Stroke* stroke, Layer* layer) {
     Plugin* plugin = Plugin::getPluginFromLua(L);
     Control* ctrl = plugin->getControl();
@@ -412,16 +416,10 @@ static void addStrokeHelper(lua_State* L, Stroke* stroke, Layer* layer) {
         toolHandler = ctrl->getToolHandler();
 
         // TODO: (willnilges) Handle DrawingType?
+        // TODO: (willnilges) Break out Eraser functionality into a new API call.
 
         // Set tool type
-        if (strcmp("eraser", tool) == 0) {
-            stroke->setToolType(STROKE_TOOL_ERASER);
-
-            std::string type = eraserTypeToString(toolHandler->getEraserType());
-
-            size = toolSizeToString(toolHandler->getEraserSize());
-            thickness = toolHandler->getToolThickness(ToolType::TOOL_ERASER)[toolSizeFromString(size)];
-        } else if (strcmp("highlighter", tool) == 0) {
+        if (strcmp("highlighter", tool) == 0) {
             stroke->setToolType(STROKE_TOOL_HIGHLIGHTER);
 
             size = toolSizeToString(toolHandler->getHighlighterSize());
@@ -457,28 +455,25 @@ static void addStrokeHelper(lua_State* L, Stroke* stroke, Layer* layer) {
         else
             stroke->setWidth(thickness);
 
-        if (stroke->getToolType() != STROKE_TOOL_ERASER) {
-            // Set color
-            if (lua_isinteger(L, -3)) // Check if the color was provided
-                stroke->setColor(Color(lua_tointeger(L, -3)));
-            else
-                stroke->setColor(color);
+        // Set color
+        if (lua_isinteger(L, -3)) // Check if the color was provided
+            stroke->setColor(Color(lua_tointeger(L, -3)));
+        else
+            stroke->setColor(color);
 
-            // Set fill
-            if (lua_isinteger(L, -2)) // Check if fill settings were provided
-                stroke->setFill(lua_tointeger(L, -2));
-            else if (filled)
-                stroke->setFill(fillOpacity);
-            else
-                stroke->setFill(-1); // No fill
+        // Set fill
+        if (lua_isinteger(L, -2)) // Check if fill settings were provided
+            stroke->setFill(lua_tointeger(L, -2));
+        else if (filled)
+            stroke->setFill(fillOpacity);
+        else
+            stroke->setFill(-1); // No fill
 
-            // Set line style
-            if (lua_isstring(L, -1)) // Check if line style settings were provided
-                stroke->setLineStyle(StrokeStyle::parseStyle(lua_tostring(L, -1)));
-            else
-                stroke->setLineStyle(StrokeStyle::parseStyle(lineStyle.data()));
-        }
-
+        // Set line style
+        if (lua_isstring(L, -1)) // Check if line style settings were provided
+            stroke->setLineStyle(StrokeStyle::parseStyle(lua_tostring(L, -1)));
+        else
+            stroke->setLineStyle(StrokeStyle::parseStyle(lineStyle.data()));
 
         lua_pop(L, 5); // Finally done with all that Lua data.
 
