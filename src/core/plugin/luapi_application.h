@@ -494,14 +494,14 @@ static void addStrokeHelper(lua_State* L, Stroke* stroke, Layer* layer) {
  * Expects a table of coordinate pairs along with attributes of the stroke.
  * Attributes are optional.
  *
- * The function expects 8 points per spline. Due to the nature of quadratic
+ * The function expects 8 points per spline segment. Due to the nature of cubic
  * splines, you must pass your points in a repeating pattern:
  * startX, startY, ctrl1X, ctrl1Y, ctrl2X, ctrl2Y, endX, endY, startX, startY, ...
  *
- * The function checks that the spline table is divisible by eight, and will throw
+ * The function checks that the length of the spline table is divisible by eight, and will throw
  * an error if it is not.
  *
- * Example: app.addStroke({
+ * Example: app.addSpline({
  *            ["splines"] = {
  *              [1] = 880.0,
  *              [2] = 874.0,
@@ -514,10 +514,10 @@ static void addStrokeHelper(lua_State* L, Stroke* stroke, Layer* layer) {
  *              [...] = ...,
  *            },
  *            ["width"] = 1.4,
- *            ["color"] = 0xff000000,
+ *            ["color"] = 0xff0000,
  *            ["fill"] = 0,
  *            ["tool"] = "pen",
- *            ["lineStyle"] = "solid"
+ *            ["lineStyle"] = "plain"
  *        })
  */
 static int applib_addSpline(lua_State* L) {
@@ -531,7 +531,7 @@ static int applib_addSpline(lua_State* L) {
     lua_settop(L, 1);
     luaL_checktype(L, 1, LUA_TTABLE);
 
-    lua_getfield(L, 1, "splines");
+    lua_getfield(L, 1, "coordinates");
     if (!lua_istable(L, -2))
         luaL_error(L, "Missing Spline table!");
     // stack now contains: -1 => table
@@ -600,8 +600,8 @@ static int applib_addSpline(lua_State* L) {
  *            ["width"] = 1.4,
  *            ["color"] = 0xff0000,
  *            ["fill"] = 0,
- *            ["tool"] = "STROKE_TOOL_PEN",
- *            ["lineStyle"] = "default"
+ *            ["tool"] = "pen",
+ *            ["lineStyle"] = "dash"
  *        })
  */
 static int applib_addStroke(lua_State* L) {
@@ -669,7 +669,7 @@ static int applib_addStroke(lua_State* L) {
 
     // Check and make sure there's enough points (need at least 2)
     if (xStream.size() < 2) {
-        g_warning("Stroke shorter than four points. Discarding. (Has %ld/2)", xStream.size());
+        g_warning("Stroke shorter than two points. Discarding. (Has %ld/2)", xStream.size());
         return 1;
     }
     // Add points to the stroke. Include pressure, if it exists.
@@ -703,7 +703,7 @@ static int applib_refreshPage(lua_State* L) {
     if (page)
         page->firePageChanged();
     else
-        g_warning("Called applib_refreshPage, but no page is selected.");
+        g_warning("Called applib_refreshPage, but there is no current page.");
     return 0;
 }
 
