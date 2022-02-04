@@ -26,6 +26,7 @@
 #include "model/SplineSegment.h"
 #include "model/StrokeStyle.h"
 #include "model/Text.h"
+#include "undo/InsertUndoAction.h"
 #include "util/StringUtils.h"
 #include "util/XojMsgBox.h"
 #include "util/safe_casts.h"
@@ -382,9 +383,11 @@ static int applib_layerAction(lua_State* L) {
  * Helper function for addStroke API. Parses pen settings from API call, taking
  * in a Stroke and a chosen Layer, sets the pen settings, and applies the stroke.
  */
-static void addStrokeHelper(lua_State* L, Stroke* stroke, Layer* layer) {
+static void addStrokeHelper(lua_State* L, Stroke* stroke) {
     Plugin* plugin = Plugin::getPluginFromLua(L);
     Control* ctrl = plugin->getControl();
+    PageRef const& page = ctrl->getCurrentPage();
+    Layer* layer = page->getSelectedLayer();
 
     std::string size;
     double thickness;
@@ -396,6 +399,7 @@ static void addStrokeHelper(lua_State* L, Stroke* stroke, Layer* layer) {
     std::string lineStyle;
     ToolHandler* toolHandler;
     const char* tool;
+    bool allowUndoRedoAction = true;
 
     // discard any extra arguments passed in
     lua_settop(L, 1);
@@ -405,11 +409,16 @@ static void addStrokeHelper(lua_State* L, Stroke* stroke, Layer* layer) {
     if (stroke->getPointCount() >= 2) {
 
         // Get attributes.
+        lua_getfield(L, 1, "allowUndoRedoAction");  // Enable/Disable undoing this stroke
         lua_getfield(L, 1, "tool");
         lua_getfield(L, 1, "width");
         lua_getfield(L, 1, "color");
         lua_getfield(L, 1, "fill");
         lua_getfield(L, 1, "lineStyle");
+
+        // If allowUndoRedoAction was defined, check what the value is.
+        if (lua_isboolean(L, -6))
+            allowUndoRedoAction = lua_toboolean(L, -6);
 
         tool = luaL_optstring(L, -5, ""); // First thing, we're gonna need the tool type.
 
@@ -431,7 +440,7 @@ static void addStrokeHelper(lua_State* L, Stroke* stroke, Layer* layer) {
             Tool& tool = toolHandler->getTool(TOOL_HIGHLIGHTER);
             color = tool.getColor();
             std::string drawingType = drawingTypeToString(tool.getDrawingType());
-        } else { // Tool type must be pen
+        } else {
             if (!(strcmp("pen", tool) == 0))
                 g_warning("%s", FC(_F("Unknown stroke type: \"{1}\", defaulting to pen") % tool));
 
@@ -475,9 +484,13 @@ static void addStrokeHelper(lua_State* L, Stroke* stroke, Layer* layer) {
         else
             stroke->setLineStyle(StrokeStyle::parseStyle(lineStyle.data()));
 
-        lua_pop(L, 5); // Finally done with all that Lua data.
+        lua_pop(L, 6);  // Finally done with all that Lua data.
 
         // Add the Stroke
+        if (allowUndoRedoAction) {
+            UndoRedoHandler* undo = ctrl->getUndoRedoHandler();
+            undo->addUndoAction(std::make_unique<InsertUndoAction>(page, layer, stroke));
+        }
         layer->addElement(stroke);
         stroke = nullptr;
         return;
@@ -492,7 +505,9 @@ static void addStrokeHelper(lua_State* L, Stroke* stroke, Layer* layer) {
 /**
  * Given a table containing a series of splines, draws a stroke on the canvas.
  * Expects a table of coordinate pairs along with attributes of the stroke.
- * Attributes are optional.
+ *
+ * Required Arguments: coordinates
+ * Optional Arguments: pressure, tool, width, color, fill, lineStyle
  *
  * The function expects 8 points per spline segment. Due to the nature of cubic
  * splines, you must pass your points in a repeating pattern:
@@ -502,7 +517,7 @@ static void addStrokeHelper(lua_State* L, Stroke* stroke, Layer* layer) {
  * an error if it is not.
  *
  * Example: app.addSpline({
- *            ["splines"] = {
+ *            ["coordinates"] = {
  *              [1] = 880.0,
  *              [2] = 874.0,
  *              [3] = 881.3295,
@@ -523,8 +538,6 @@ static void addStrokeHelper(lua_State* L, Stroke* stroke, Layer* layer) {
 static int applib_addSpline(lua_State* L) {
     Plugin* plugin = Plugin::getPluginFromLua(L);
     Control* ctrl = plugin->getControl();
-    PageRef const& page = ctrl->getCurrentPage();
-    Layer* layer = page->getSelectedLayer();
     Stroke* stroke = new Stroke();
 
     // Discard any extra arguments passed in
@@ -533,7 +546,7 @@ static int applib_addSpline(lua_State* L) {
 
     lua_getfield(L, 1, "coordinates");
     if (!lua_istable(L, -2))
-        luaL_error(L, "Missing Spline table!");
+        luaL_error(L, "Missing coordinate table!");
     // stack now contains: -1 => table
     lua_pushnil(L);
     // stack now contains: -1 => nil; -2 => table
@@ -568,7 +581,7 @@ static int applib_addSpline(lua_State* L) {
         // TODO: (willnilges) Is there a way we can get Pressure with Splines?
     }
     // Finish building the Stroke and apply it to the layer.
-    addStrokeHelper(L, stroke, layer);
+    addStrokeHelper(L, stroke);
     return 0;
 }
 
@@ -576,7 +589,9 @@ static int applib_addSpline(lua_State* L) {
  * Given a set of points, draws a stroke on the canvas.
  * Expects three tables of equal length: one for X, one for Y, and one for
  * stroke pressure, along with attributes of the stroke.
- * Attributes are optional. Pressure is optional.
+ *
+ * Required Arguments: X, Y
+ * Optional Arguments: pressure, tool, width, color, fill, lineStyle
  *
  * The function checks for consistency among table lengths, and throws an
  * error if there is a discrepancy
@@ -607,8 +622,6 @@ static int applib_addSpline(lua_State* L) {
 static int applib_addStroke(lua_State* L) {
     Plugin* plugin = Plugin::getPluginFromLua(L);
     Control* ctrl = plugin->getControl();
-    PageRef const& page = ctrl->getCurrentPage();
-    Layer* layer = page->getSelectedLayer();
     Stroke* stroke = new Stroke();
 
     std::vector<double> xStream;
@@ -686,7 +699,7 @@ static int applib_addStroke(lua_State* L) {
     }
 
     // Finish building the Stroke and apply it to the layer.
-    addStrokeHelper(L, stroke, layer);
+    addStrokeHelper(L, stroke);
     return 0;
 }
 
