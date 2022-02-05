@@ -500,6 +500,8 @@ static void addStrokeHelper(lua_State* L, Stroke* stroke) {
     return;
 }
 
+
+// TODO (willnilges): Should we delete the singular functions?
 /**
  * Given a table containing a series of spline segments, draws a stroke on the canvas.
  * Expects a table of coordinate pairs along with attributes of the stroke.
@@ -519,7 +521,7 @@ static void addStrokeHelper(lua_State* L, Stroke* stroke) {
  * an error if it is not.
  *
  * Example: app.addSpline({
- *            ["coordinates"] = {
+ *            ["coordinates"] = { -- All of these combine to make one stroke
  *              [1] = 880.0,
  *              [2] = 874.0,
  *              [3] = 881.3295,
@@ -530,7 +532,7 @@ static void addStrokeHelper(lua_State* L, Stroke* stroke) {
  *              [8] = 806.0,
  *              [...] = ...,
  *            },
- *            ["allowUndoRedoAction"] = individual,
+ *            ["allowUndoRedoAction"] = individual, -- or "none"
  *            ["width"] = 1.4,
  *            ["color"] = 0xff0000,
  *            ["fill"] = 0,
@@ -589,10 +591,10 @@ static int applib_addSpline(lua_State* L) {
 }
 
 /**
- * Given a table containing a series of splines, draws a stroke on the canvas.
+ * Given a table containing a series of splines, draws a batch of strokes on the canvas.
  * Expects a table of tables containing eight coordinate pairs, along with attributes of the stroke.
  *
- * Required Arguments: segments
+ * Required Arguments: strokes
  * Optional Arguments: pressure, tool, width, color, fill, lineStyle
  *
  * If optional arguments are not provided, the specified tool settings are used.
@@ -607,18 +609,19 @@ static int applib_addSpline(lua_State* L) {
  * an error if it is not.
  *
  * Example: app.addSplines({
- *            ["segments"] = {
- *              {[1] = {
- *                  [1] = 880.0,
- *                  [2] = 874.0,
- *                  [3] = 881.3295,
- *                  [4] = 851.5736,
- *                  [5] = 877.2915,
- *                  [6] = 828.2946,
- *                  [7] = 875.1697,
- *                  [8] = 806.0
- *              },
- *              [...] = ...,
+ *            ["strokes"] = { -- The outer table is a table of strokes
+ *                { -- Each inner table is a stroke
+ *                    [1] = 880.0, // Every eight pairs is a SplineSegment
+ *                    [2] = 874.0,
+ *                    [3] = 881.3295,
+ *                    [4] = 851.5736,
+ *                    [5] = 877.2915,
+ *                    [6] = 828.2946,
+ *                    [7] = 875.1697,
+ *                    [8] = 806.0,
+ *                    ... -- A Stroke can be made up of as many SplineSegments as is necessary.
+ *                },
+ *                ... -- You can pass as many independent strokes into this function as you want.
  *            },
  *            ["allowUndoRedoAction"] = "together", -- (or "individual" or "none")
  *            ["width"] = 1.4,
@@ -628,17 +631,17 @@ static int applib_addSpline(lua_State* L) {
  *            ["lineStyle"] = "plain"
  *        })
  */
-static int applib_addSplines(lua_State* L) {
+static int applib_addBatchStrokesFromSplines(lua_State* L) {
     Plugin* plugin = Plugin::getPluginFromLua(L);
     Control* ctrl = plugin->getControl();
     Stroke* stroke;
-    std::vector<std::vector<double>> segments;
+    std::vector<std::vector<double>> stroke_batch;
 
     // Discard any extra arguments passed in
     lua_settop(L, 1);
     luaL_checktype(L, 1, LUA_TTABLE);
 
-    lua_getfield(L, 1, "segments");
+    lua_getfield(L, 1, "strokes");
     if (!lua_istable(L, -2))
         luaL_error(L, "Missing coordinate table!");
     // stack now contains: -1 => table
@@ -648,17 +651,15 @@ static int applib_addSplines(lua_State* L) {
         // stack now contains: -1 => value(also a table); -2 => key; -3 => table
         lua_pushnil(L);
         // stack now contains: -1 => nil; -2 => value(also a table); -3 => key; -4 => table;
-        std::vector<double> segment;
+        std::vector<double> stroke_points;
         while (lua_next(L, -2)) {
             double point = lua_tonumber(L, -1);
-            segment.push_back(point); // Each segment is going to have multiples of 8 points.
-            printf("Got point %d: %f\n", segment.size(), point);
+            stroke_points.push_back(point);  // Each segment is going to have multiples of 8 points.
             // pop value + copy of key, leaving original key
             lua_pop(L, 1);
             // stack now contains: -1 => key2; -2 => value(also a table); -3 => key; -4 => table;
         }
-        segments.push_back(segment);
-        printf("Next!\n");
+        stroke_batch.push_back(stroke_points);
         //double value = lua_tonumber(L, -1);
         //coordStream.push_back(value);
         // pop value + copy of key, leaving original key
@@ -670,17 +671,17 @@ static int applib_addSplines(lua_State* L) {
 
     long unsigned int i;
     std::vector<Element*> strokes;
-    for (std::vector<double> seg : segments) {
+    for (std::vector<double> points: stroke_batch) {
         // Check if the list is divisible by 8.
-        if (seg.size() % 8 != 0)
-            luaL_error(L, "Spline table incomplete!");
+        if (points.size() % 8 != 0)
+            luaL_error(L, "Spline Segment table incomplete!");
         stroke = new Stroke();
-        for (int i = 0; i < seg.size(); i += 8) {
+        for (int i = 0; i < points.size(); i += 8) {
             // start, ctrl1, ctrl2, end
-            Point start = Point(seg.at(i),     seg.at(i + 1), Point::NO_PRESSURE);
-            Point ctrl1 = Point(seg.at(i + 2), seg.at(i + 3), Point::NO_PRESSURE);
-            Point ctrl2 = Point(seg.at(i + 4), seg.at(i + 5), Point::NO_PRESSURE);
-            Point end   = Point(seg.at(i + 6), seg.at(i + 7), Point::NO_PRESSURE);
+            Point start = Point(points.at(i), points.at(i + 1), Point::NO_PRESSURE);
+            Point ctrl1 = Point(points.at(i + 2), points.at(i + 3), Point::NO_PRESSURE);
+            Point ctrl2 = Point(points.at(i + 4), points.at(i + 5), Point::NO_PRESSURE);
+            Point end = Point(points.at(i + 6), points.at(i + 7), Point::NO_PRESSURE);
             SplineSegment segment = SplineSegment(start, ctrl1, ctrl2, end);
             std::list<Point> raster = segment.toPointSequence();
             for (Point point: raster) stroke->addPoint(point);
@@ -706,7 +707,6 @@ static int applib_addSplines(lua_State* L) {
     lua_pop(L, 1);
     return 0;
 }
-
 
 /**
  * Given a set of points, draws a stroke on the canvas.
@@ -1696,7 +1696,7 @@ static const luaL_Reg applib[] = {{"msgbox", applib_msgbox},
                                   {"getDisplayDpi", applib_getDisplayDpi},
                                   {"addStroke", applib_addStroke},
                                   {"addSpline", applib_addSpline},
-                                  {"addSplines", applib_addSplines},
+                                  {"addBatchStrokesFromSplines", applib_addBatchStrokesFromSplines},
                                   {"getFilePath", applib_getFilePath},
                                   {"refreshPage", applib_refreshPage},
                                   // Placeholder
