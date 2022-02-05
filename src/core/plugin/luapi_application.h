@@ -503,11 +503,15 @@ static void addStrokeHelper(lua_State* L, Stroke* stroke) {
 }
 
 /**
- * Given a table containing a series of splines, draws a stroke on the canvas.
+ * Given a table containing a series of spline segments, draws a stroke on the canvas.
  * Expects a table of coordinate pairs along with attributes of the stroke.
  *
  * Required Arguments: coordinates
  * Optional Arguments: pressure, tool, width, color, fill, lineStyle
+ *
+ * If optional arguments are not provided, the specified tool settings are used.
+ * If the tool is not provided, the current pen settings are used.
+ * The only tools supported are Pen and Highlighter.
  *
  * The function expects 8 points per spline segment. Due to the nature of cubic
  * splines, you must pass your points in a repeating pattern:
@@ -592,6 +596,10 @@ static int applib_addSpline(lua_State* L) {
  *
  * Required Arguments: X, Y
  * Optional Arguments: pressure, tool, width, color, fill, lineStyle
+ *
+ * If optional arguments are not provided, the specified tool settings are used.
+ * If the tool is not provided, the current pen settings are used.
+ * The only tools supported are Pen and Highlighter.
  *
  * The function checks for consistency among table lengths, and throws an
  * error if there is a discrepancy
