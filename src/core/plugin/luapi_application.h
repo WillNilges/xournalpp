@@ -590,6 +590,144 @@ static int applib_addSpline(lua_State* L) {
 }
 
 /**
+ * Given a table containing a series of splines, draws a stroke on the canvas.
+ * Expects a table of tables containing eight coordinate pairs, along with attributes of the stroke.
+ *
+ * Required Arguments: segments
+ * Optional Arguments: pressure, tool, width, color, fill, lineStyle
+ *
+ * If optional arguments are not provided, the specified tool settings are used.
+ * If the tool is not provided, the current pen settings are used.
+ * The only tools supported are Pen and Highlighter.
+ *
+ * The function expects 8 points per spline segment. Due to the nature of cubic
+ * splines, you must pass your points in a repeating pattern:
+ * startX, startY, ctrl1X, ctrl1Y, ctrl2X, ctrl2Y, endX, endY, startX, startY, ...
+ *
+ * The function checks that the length of the spline table is divisible by eight, and will throw
+ * an error if it is not.
+ *
+ * Example: app.addSplines({
+ *            ["segments"] = {
+ *              {[1] = {
+ *                  [1] = 880.0,
+ *                  [2] = 874.0,
+ *                  [3] = 881.3295,
+ *                  [4] = 851.5736,
+ *                  [5] = 877.2915,
+ *                  [6] = 828.2946,
+ *                  [7] = 875.1697,
+ *                  [8] = 806.0
+ *              },
+ *              [...] = ...,
+ *            },
+ *            ["width"] = 1.4,
+ *            ["color"] = 0xff0000,
+ *            ["fill"] = 0,
+ *            ["tool"] = "pen",
+ *            ["lineStyle"] = "plain"
+ *        })
+ */
+static int applib_addSplines(lua_State* L) {
+    Plugin* plugin = Plugin::getPluginFromLua(L);
+    Control* ctrl = plugin->getControl();
+    Stroke* stroke;
+    std::vector<std::vector<double>> segments;
+
+    // Discard any extra arguments passed in
+    lua_settop(L, 1);
+    luaL_checktype(L, 1, LUA_TTABLE);
+
+    lua_getfield(L, 1, "segments");
+    if (!lua_istable(L, -2))
+        luaL_error(L, "Missing coordinate table!");
+    // stack now contains: -1 => table
+    lua_pushnil(L);
+    // stack now contains: -1 => nil; -2 => table
+    while (lua_next(L, -2)) {
+        // stack now contains: -1 => value(also a table); -2 => key; -3 => table
+        lua_pushnil(L);
+        // stack now contains: -1 => nil; -2 => value(also a table); -3 => key; -4 => table;
+        std::vector<double> segment;
+        while (lua_next(L, -2)) {
+            double point = lua_tonumber(L, -1);
+            segment.push_back(point); // Each segment is going to have multiples of 8 points.
+            printf("Got point %d: %f\n", segment.size(), point);
+            // pop value + copy of key, leaving original key
+            lua_pop(L, 1);
+            // stack now contains: -1 => key2; -2 => value(also a table); -3 => key; -4 => table;
+        }
+        segments.push_back(segment);
+        printf("Next!\n");
+        //double value = lua_tonumber(L, -1);
+        //coordStream.push_back(value);
+        // pop value + copy of key, leaving original key
+        lua_pop(L, 1);
+        // stack now contains: -1 => key; -2 => table
+    }
+    // stack now contains: -1 => table
+    lua_pop(L, 1);  // Stack is now the same as it was on entry to this function
+
+    // Check if the list is divisible by 8.
+    /*if (coordStream.size() % 8 != 0)
+        luaL_error(L, "Spline table incomplete!");*/
+/*
+    for (std::vector<double> seg : segments) {
+        stroke = new Stroke();
+        // start, ctrl1, ctrl2, end
+        Point start = Point(seg.at(0), seg.at(1), Point::NO_PRESSURE);
+        Point ctrl1 = Point(seg.at(2), seg.at(3), Point::NO_PRESSURE);
+        Point ctrl2 = Point(seg.at(4), seg.at(5), Point::NO_PRESSURE);
+        Point end = Point(seg.at(6), seg.at(7), Point::NO_PRESSURE);
+        SplineSegment segment = SplineSegment(start, ctrl1, ctrl2, end);
+        std::list<Point> raster = segment.toPointSequence();
+        for (Point point: raster) stroke->addPoint(point);
+        // TODO: (willnilges) Is there a way we can get Pressure with Splines?
+        // Finish building the Stroke and apply it to the layer.
+        addStrokeHelper(L, stroke);
+    }
+*/
+/*
+    // Now take that gigantic list of splines and create SplineSegments out of them.
+    long unsigned int i = 0;
+    while (i < coordStream.size()) {
+        // start, ctrl1, ctrl2, end
+        Point start = Point(coordStream.at(i), coordStream.at(i + 1), Point::NO_PRESSURE);
+        Point ctrl1 = Point(coordStream.at(i + 2), coordStream.at(i + 3), Point::NO_PRESSURE);
+        Point ctrl2 = Point(coordStream.at(i + 4), coordStream.at(i + 5), Point::NO_PRESSURE);
+        Point end = Point(coordStream.at(i + 6), coordStream.at(i + 7), Point::NO_PRESSURE);
+        i += 8;
+        SplineSegment segment = SplineSegment(start, ctrl1, ctrl2, end);
+        std::list<Point> raster = segment.toPointSequence();
+        for (Point point: raster) stroke->addPoint(point);
+        // TODO: (willnilges) Is there a way we can get Pressure with Splines?
+    }*/
+
+    long unsigned int i;
+    for (std::vector<double> seg : segments) {
+        // Check if the list is divisible by 8.
+        if (seg.size() % 8 != 0)
+            luaL_error(L, "Spline table incomplete!");
+        stroke = new Stroke();
+        for (int i = 0; i < seg.size(); i += 8) {
+            // start, ctrl1, ctrl2, end
+            Point start = Point(seg.at(i),     seg.at(i + 1), Point::NO_PRESSURE);
+            Point ctrl1 = Point(seg.at(i + 2), seg.at(i + 3), Point::NO_PRESSURE);
+            Point ctrl2 = Point(seg.at(i + 4), seg.at(i + 5), Point::NO_PRESSURE);
+            Point end   = Point(seg.at(i + 6), seg.at(i + 7), Point::NO_PRESSURE);
+            SplineSegment segment = SplineSegment(start, ctrl1, ctrl2, end);
+            std::list<Point> raster = segment.toPointSequence();
+            for (Point point: raster) stroke->addPoint(point);
+            // TODO: (willnilges) Is there a way we can get Pressure with Splines?
+        }
+        // Finish building the Stroke and apply it to the layer.
+        addStrokeHelper(L, stroke);
+    }
+    return 0;
+}
+
+
+/**
  * Given a set of points, draws a stroke on the canvas.
  * Expects three tables of equal length: one for X, one for Y, and one for
  * stroke pressure, along with attributes of the stroke.
@@ -1577,6 +1715,7 @@ static const luaL_Reg applib[] = {{"msgbox", applib_msgbox},
                                   {"getDisplayDpi", applib_getDisplayDpi},
                                   {"addStroke", applib_addStroke},
                                   {"addSpline", applib_addSpline},
+                                  {"addSplines", applib_addSplines},
                                   {"getFilePath", applib_getFilePath},
                                   {"refreshPage", applib_refreshPage},
                                   // Placeholder
