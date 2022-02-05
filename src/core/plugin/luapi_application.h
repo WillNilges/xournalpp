@@ -393,13 +393,12 @@ static void addStrokeHelper(lua_State* L, Stroke* stroke) {
     double thickness;
     int fillOpacity;
     bool filled;
-    //Tool& tool;
     Color color;
     std::string drawingType;
     std::string lineStyle;
     ToolHandler* toolHandler;
     const char* tool;
-    bool allowUndoRedoAction = true;
+    std::string allowUndoRedoAction;
 
     // discard any extra arguments passed in
     lua_settop(L, 1);
@@ -417,10 +416,9 @@ static void addStrokeHelper(lua_State* L, Stroke* stroke) {
         lua_getfield(L, 1, "lineStyle");
 
         // If allowUndoRedoAction was defined, check what the value is.
-        if (lua_isboolean(L, -6))
-            allowUndoRedoAction = lua_toboolean(L, -6);
+        allowUndoRedoAction = luaL_optstring(L, -6, "individual");
 
-        tool = luaL_optstring(L, -5, ""); // First thing, we're gonna need the tool type.
+        tool = luaL_optstring(L, -5, ""); // We're gonna need the tool type.
 
         toolHandler = ctrl->getToolHandler();
 
@@ -487,7 +485,7 @@ static void addStrokeHelper(lua_State* L, Stroke* stroke) {
         lua_pop(L, 6);  // Finally done with all that Lua data.
 
         // Add the Stroke
-        if (allowUndoRedoAction) {
+        if (allowUndoRedoAction == "individual") {
             UndoRedoHandler* undo = ctrl->getUndoRedoHandler();
             undo->addUndoAction(std::make_unique<InsertUndoAction>(page, layer, stroke));
         }
@@ -532,6 +530,7 @@ static void addStrokeHelper(lua_State* L, Stroke* stroke) {
  *              [8] = 806.0,
  *              [...] = ...,
  *            },
+ *            ["allowUndoRedoAction"] = individual,
  *            ["width"] = 1.4,
  *            ["color"] = 0xff0000,
  *            ["fill"] = 0,
@@ -621,6 +620,7 @@ static int applib_addSpline(lua_State* L) {
  *              },
  *              [...] = ...,
  *            },
+ *            ["allowUndoRedoAction"] = "together", -- (or "individual" or "none")
  *            ["width"] = 1.4,
  *            ["color"] = 0xff0000,
  *            ["fill"] = 0,
@@ -668,42 +668,8 @@ static int applib_addSplines(lua_State* L) {
     // stack now contains: -1 => table
     lua_pop(L, 1);  // Stack is now the same as it was on entry to this function
 
-    // Check if the list is divisible by 8.
-    /*if (coordStream.size() % 8 != 0)
-        luaL_error(L, "Spline table incomplete!");*/
-/*
-    for (std::vector<double> seg : segments) {
-        stroke = new Stroke();
-        // start, ctrl1, ctrl2, end
-        Point start = Point(seg.at(0), seg.at(1), Point::NO_PRESSURE);
-        Point ctrl1 = Point(seg.at(2), seg.at(3), Point::NO_PRESSURE);
-        Point ctrl2 = Point(seg.at(4), seg.at(5), Point::NO_PRESSURE);
-        Point end = Point(seg.at(6), seg.at(7), Point::NO_PRESSURE);
-        SplineSegment segment = SplineSegment(start, ctrl1, ctrl2, end);
-        std::list<Point> raster = segment.toPointSequence();
-        for (Point point: raster) stroke->addPoint(point);
-        // TODO: (willnilges) Is there a way we can get Pressure with Splines?
-        // Finish building the Stroke and apply it to the layer.
-        addStrokeHelper(L, stroke);
-    }
-*/
-/*
-    // Now take that gigantic list of splines and create SplineSegments out of them.
-    long unsigned int i = 0;
-    while (i < coordStream.size()) {
-        // start, ctrl1, ctrl2, end
-        Point start = Point(coordStream.at(i), coordStream.at(i + 1), Point::NO_PRESSURE);
-        Point ctrl1 = Point(coordStream.at(i + 2), coordStream.at(i + 3), Point::NO_PRESSURE);
-        Point ctrl2 = Point(coordStream.at(i + 4), coordStream.at(i + 5), Point::NO_PRESSURE);
-        Point end = Point(coordStream.at(i + 6), coordStream.at(i + 7), Point::NO_PRESSURE);
-        i += 8;
-        SplineSegment segment = SplineSegment(start, ctrl1, ctrl2, end);
-        std::list<Point> raster = segment.toPointSequence();
-        for (Point point: raster) stroke->addPoint(point);
-        // TODO: (willnilges) Is there a way we can get Pressure with Splines?
-    }*/
-
     long unsigned int i;
+    std::vector<Stroke*> strokes;
     for (std::vector<double> seg : segments) {
         // Check if the list is divisible by 8.
         if (seg.size() % 8 != 0)
@@ -722,7 +688,19 @@ static int applib_addSplines(lua_State* L) {
         }
         // Finish building the Stroke and apply it to the layer.
         addStrokeHelper(L, stroke);
+        strokes.push_back(stroke);
     }
+
+    lua_getfield(L, 1, "allowUndoRedoAction");  // Enable/Disable undoing this stroke
+    std::string allowUndoRedoAction = luaL_optstring(L, -1, "together"); // If 'together,' this function handles undoing, else it's handled later.
+    if (allowUndoRedoAction == "together") {
+        Control* ctrl = plugin->getControl();
+        PageRef const& page = ctrl->getCurrentPage();
+        Layer* layer = page->getSelectedLayer();
+        UndoRedoHandler* undo = ctrl->getUndoRedoHandler();
+        undo->addUndoAction(std::make_unique<InsertsUndoAction>(page, layer, strokes));
+    }
+    lua_pop(L, 1);
     return 0;
 }
 
