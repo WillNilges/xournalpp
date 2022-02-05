@@ -669,7 +669,7 @@ static int applib_addSplines(lua_State* L) {
     lua_pop(L, 1);  // Stack is now the same as it was on entry to this function
 
     long unsigned int i;
-    std::vector<Stroke*> strokes;
+    std::vector<Element*> strokes;
     for (std::vector<double> seg : segments) {
         // Check if the list is divisible by 8.
         if (seg.size() % 8 != 0)
@@ -686,9 +686,12 @@ static int applib_addSplines(lua_State* L) {
             for (Point point: raster) stroke->addPoint(point);
             // TODO: (willnilges) Is there a way we can get Pressure with Splines?
         }
-        // Finish building the Stroke and apply it to the layer.
-        addStrokeHelper(L, stroke);
-        strokes.push_back(stroke);
+        if (stroke->getPointCount() >= 2) {
+            // Finish building the Stroke and apply it to the layer.
+            addStrokeHelper(L, stroke);
+            strokes.push_back(stroke);
+        } else
+            g_warning("Stroke shorter than two points. Discarding. (Has %d)", stroke->getPointCount());
     }
 
     lua_getfield(L, 1, "allowUndoRedoAction");  // Enable/Disable undoing this stroke
